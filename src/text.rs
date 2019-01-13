@@ -1,8 +1,6 @@
-use std::borrow::Cow;
-use std::ops::Add;
-use std::iter::Sum;
-use regex::Regex;
 use lazy_static::lazy_static;
+use regex::Regex;
+use std::{borrow::Cow, iter::Sum, ops::Add};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Text {
@@ -76,7 +74,8 @@ impl Text {
 
     pub fn sortable_file_safe(&self) -> Cow<str> {
         lazy_static! {
-            static ref RE: Regex = Regex::new(r"^(?i)(?P<article>the|an|a)\s(?P<rest>.*)$").unwrap();
+            static ref RE: Regex =
+                Regex::new(r"^(?i)(?P<article>the|an|a)\s(?P<rest>.*)$").unwrap();
         }
         let file_safe = self.file_safe();
         match RE.captures(&file_safe) {
@@ -121,7 +120,7 @@ impl Add<Text> for Text {
 impl Sum for Text {
     fn sum<I>(iter: I) -> Self
     where
-        I: Iterator<Item=Self>,
+        I: Iterator<Item = Self>,
     {
         iter.fold(Text::new(""), |a, b| a + b)
     }
@@ -129,7 +128,21 @@ impl Sum for Text {
 
 #[cfg(test)]
 mod tests {
-    use super::Text;
+    use super::{Cow, Text};
+
+    fn is_borrowed(cow: Cow<str>) -> bool {
+        match cow {
+            Cow::Borrowed(_) => true,
+            Cow::Owned(_) => false,
+        }
+    }
+
+    fn is_owned(cow: Cow<str>) -> bool {
+        match cow {
+            Cow::Borrowed(_) => false,
+            Cow::Owned(_) => true,
+        }
+    }
 
     #[test]
     fn ascii_is_same_as_text() {
@@ -150,6 +163,24 @@ mod tests {
     }
 
     #[test]
+    fn ascii_is_borrowed_text() {
+        let text = Text::new("hello");
+        assert!(is_borrowed(text.ascii()));
+    }
+
+    #[test]
+    fn ascii_is_borrowed_if_overridden() {
+        let text = Text::with_ascii("hello", "goodbye");
+        assert!(is_borrowed(text.ascii()));
+    }
+
+    #[test]
+    fn ascii_is_owned_for_nonascii_text() {
+        let text = Text::new("fire = 🔥");
+        assert!(is_owned(text.ascii()));
+    }
+
+    #[test]
     fn file_safe_is_ascii_if_no_unsafe_chars() {
         let text = Text::with_ascii("foo", "bar");
         assert_eq!(text.file_safe(), "bar");
@@ -159,6 +190,36 @@ mod tests {
     fn file_safe_replaces_unsafe_chars() {
         let text = Text::new("foo: <bar>?");
         assert_eq!(text.file_safe(), "foo - [bar]");
+    }
+
+    #[test]
+    fn file_safe_is_borrowed_if_text_is_safe() {
+        let text = Text::new("foo");
+        assert!(is_borrowed(text.file_safe()));
+    }
+
+    #[test]
+    fn file_safe_is_owned_if_text_isnt_ascii() {
+        let text = Text::new("fire = 🔥");
+        assert!(is_owned(text.file_safe()));
+    }
+
+    #[test]
+    fn file_safe_is_owned_if_text_isnt_safe() {
+        let text = Text::new("foo?");
+        assert!(is_owned(text.file_safe()));
+    }
+
+    #[test]
+    fn file_safe_is_borrowed_if_overridden_ascii_is_safe() {
+        let text = Text::with_ascii("foo", "bar");
+        assert!(is_borrowed(text.file_safe()));
+    }
+
+    #[test]
+    fn file_safe_is_owned_if_overridden_ascii_isnt_safe() {
+        let text = Text::with_ascii("foo", "bar?");
+        assert!(is_owned(text.file_safe()));
     }
 
     #[test]
@@ -177,6 +238,48 @@ mod tests {
     fn sortable_file_safe_preserves_casing() {
         let text = Text::new("A Song Title");
         assert_eq!(text.sortable_file_safe(), "Song Title, A");
+    }
+
+    #[test]
+    fn sortable_file_safe_is_borrowed_with_unmodified_text() {
+        let text = Text::new("foo");
+        assert!(is_borrowed(text.sortable_file_safe()));
+    }
+
+    #[test]
+    fn sortable_file_safe_is_owned_with_nonascii_text() {
+        let text = Text::new("fire = 🔥");
+        assert!(is_owned(text.sortable_file_safe()));
+    }
+
+    #[test]
+    fn sortable_file_safe_is_owned_with_non_file_safe_text() {
+        let text = Text::new("foo?");
+        assert!(is_owned(text.sortable_file_safe()));
+    }
+
+    #[test]
+    fn sortable_file_safe_is_owned_with_modified_text() {
+        let text = Text::new("A Song Title");
+        assert!(is_owned(text.sortable_file_safe()));
+    }
+
+    #[test]
+    fn sortable_file_safe_is_borrowed_with_unmodified_ascii() {
+        let text = Text::with_ascii("foo", "bar");
+        assert!(is_borrowed(text.sortable_file_safe()));
+    }
+
+    #[test]
+    fn sortable_file_safe_is_owned_with_non_safe_ascii() {
+        let text = Text::with_ascii("foo", "bar?");
+        assert!(is_owned(text.sortable_file_safe()));
+    }
+
+    #[test]
+    fn sortable_file_safe_is_owned_with_modified_ascii() {
+        let text = Text::with_ascii("foo", "the bar");
+        assert!(is_owned(text.sortable_file_safe()));
     }
 
     #[test]
@@ -200,6 +303,9 @@ mod tests {
     #[test]
     fn texts_sum_asciis_together() {
         let texts = vec![Text::new("hello"), Text::with_ascii("world", "universe")];
-        assert_eq!(texts.into_iter().sum::<Text>(), Text::with_ascii("helloworld", "hellouniverse"));
+        assert_eq!(
+            texts.into_iter().sum::<Text>(),
+            Text::with_ascii("helloworld", "hellouniverse")
+        );
     }
 }
