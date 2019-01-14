@@ -4,6 +4,7 @@ use crate::{
     text::Text,
     utils::{comma_separated, num_digits},
 };
+use id3::{frame::Content, Frame, Tag, Version};
 use std::path::PathBuf;
 
 pub struct Track {
@@ -178,6 +179,98 @@ impl<'a> TrackInContext<'a> {
             transform_image_vw,
         )
         .or_else(|_| self.album().cover_vw())
+    }
+
+    pub fn update_id3(&self) {
+        let mut tag = Tag::new();
+        tag.set_title(self.title().text());
+        if self.artists().len() > 0 {
+            tag.set_artist(self.artist().text());
+        }
+        tag.set_track(self.track_number as u32);
+        if let Some(album_artist) = self.album_artist() {
+            tag.set_album_artist(album_artist.text());
+        }
+        if !self.disc.is_only_disc() {
+            tag.set_disc(self.disc.disc_number as u32);
+        }
+        tag.set_album(self.album().title().text());
+        if let Some(year) = self.year() {
+            let timestamp = id3::Timestamp {
+                year: year as i32,
+                month: None,
+                day: None,
+                hour: None,
+                minute: None,
+                second: None,
+            };
+            tag.set_date_recorded(timestamp);
+        }
+        if let Some(genre) = self.genre() {
+            tag.set_genre(genre.text());
+        }
+        if let Some(comment) = self.comment() {
+            // TODO: Maybe make comments a dictionary from description to text?
+            let comment = id3::frame::Comment {
+                lang: "eng".to_string(),
+                description: "".to_string(),
+                text: comment.text().to_string(),
+            };
+            tag.add_comment(comment)
+        }
+        if let Some(lyrics) = self.lyrics() {
+            // TODO: Handle non-English lyrics.
+            let lyrics = id3::frame::Lyrics {
+                lang: "eng".to_string(),
+                description: "".to_string(),
+                text: lyrics.text().to_string(),
+            };
+            // TODO: As soon as the next version of id3 is released, update this to `add_lyrics`.
+            tag.add_frame(Frame::with_content("USLT", Content::Lyrics(lyrics)));
+        }
+        // TODO: Return result.
+        if let Ok(Image { data, format }) = self.cover() {
+            let cover = id3::frame::Picture {
+                mime_type: format.as_mime().to_string(),
+                picture_type: id3::frame::PictureType::CoverFront,
+                description: "".to_string(),
+                data,
+            };
+            tag.add_picture(cover);
+        }
+
+        // TODO: Remove unwraps & return Result.
+        tag.write_to_path(self.path(), Version::Id3v24).unwrap();
+    }
+
+    pub fn update_id3_vw(&self) {
+        let mut tag = Tag::new();
+        tag.set_title(self.title().ascii());
+        if self.artists().len() > 0 {
+            tag.set_artist(self.artist().ascii());
+        }
+        tag.set_track(self.track_number as u32);
+        if let Some(album_artist) = self.album_artist() {
+            tag.set_album_artist(album_artist.ascii());
+        }
+        if !self.disc.is_only_disc() {
+            tag.set_disc(self.disc.disc_number as u32);
+        }
+        tag.set_album(self.album().title().ascii());
+        // TODO: Return result.
+        if let Ok(Image { data, format }) = self.cover_vw() {
+            let cover = id3::frame::Picture {
+                mime_type: format.as_mime().to_string(),
+                picture_type: id3::frame::PictureType::CoverFront,
+                description: "".to_string(),
+                data,
+            };
+            tag.add_picture(cover);
+        }
+
+        // TODO: Remove unwraps & return result
+        // TODO: Where do we write to?
+        // tag.write_to_path(self.path(), Version::Id3v24).unwrap();
     }
 }
 
