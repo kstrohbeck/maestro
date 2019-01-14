@@ -51,20 +51,32 @@ impl Album {
         &self.path
     }
 
+    pub fn extras_path(&self) -> PathBuf {
+        self.path().join("extras")
+    }
+
     pub fn image_path(&self) -> PathBuf {
-        self.path().join("extras/images")
+        let mut path = self.extras_path();
+        path.push("images");
+        path
     }
 
     pub fn cache_path(&self) -> PathBuf {
-        self.path().join("extras/.cache")
+        let mut path = self.extras_path();
+        path.push(".cache");
+        path
     }
 
     pub fn covers_path(&self) -> PathBuf {
-        self.cache_path().join("covers")
+        let mut path = self.cache_path();
+        path.push("covers");
+        path
     }
 
     pub fn covers_vw_path(&self) -> PathBuf {
-        self.cache_path().join("covers-vw")
+        let mut path = self.cache_path();
+        path.push("covers-vw");
+        path
     }
 
     pub fn cover(&self) -> Result<Image, ImageError> {
