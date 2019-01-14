@@ -16,12 +16,33 @@ pub struct Album {
 }
 
 impl Album {
+    pub fn new<T>(title: T, path: PathBuf) -> Album
+    where
+        T: Into<Text>,
+    {
+        Album {
+            title: title.into(),
+            artists: Vec::new(),
+            year: None,
+            genre: None,
+            discs: Vec::new(),
+            path,
+        }
+    }
+
     pub fn title(&self) -> &Text {
         &self.title
     }
 
     pub fn artists(&self) -> &[Text] {
         &self.artists[..]
+    }
+
+    pub fn push_artist<T>(&mut self, artist: T)
+    where
+        T: Into<Text>,
+    {
+        self.artists.push(artist.into());
     }
 
     pub fn artist(&self) -> Text {
@@ -95,5 +116,27 @@ impl Album {
             "Front Cover",
             transform_image_vw,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn artist_is_only_artist_in_list() {
+        let mut album = Album::new("title", PathBuf::from("."));
+        album.push_artist(Text::with_ascii("b", "c"));
+        let artist = album.artist();
+        assert_eq!(artist, Text::with_ascii("b", "c"));
+    }
+
+    #[test]
+    fn artist_is_comma_separated_if_multiple() {
+        let mut album = Album::new("title", PathBuf::from("."));
+        album.push_artist("a");
+        album.push_artist(Text::with_ascii("b", "c"));
+        let artist = album.artist();
+        assert_eq!(artist, Text::with_ascii("a, b", "a, c"));
     }
 }
