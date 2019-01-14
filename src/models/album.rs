@@ -1,4 +1,5 @@
 use crate::{
+    image::{transform_image, transform_image_vw, Image, ImageError},
     models::disc::{Disc, DiscInContext},
     text::Text,
     utils::comma_separated,
@@ -50,17 +51,29 @@ impl Album {
         &self.path
     }
 
+    pub fn image_path(&self) -> PathBuf {
+        self.path().join("extras/images")
+    }
+
     pub fn cache_path(&self) -> PathBuf {
         self.path().join("extras/.cache")
     }
 
-    pub fn cover_path(&self) -> Option<PathBuf> {
-        ["png", "jpg", "jpeg"]
-            .iter()
-            .map(|ext| {
-                let fname = format!("Front Cover.{}", ext);
-                self.cache_path().join(fname)
-            })
-            .find(|p| p.exists())
+    pub fn cover(&self) -> Result<Image, ImageError> {
+        Image::load_with_cache(
+            self.image_path(),
+            self.cache_path().join("covers"),
+            "Front Cover",
+            transform_image,
+        )
+    }
+
+    pub fn cover_vw(&self) -> Result<Image, ImageError> {
+        Image::load_with_cache(
+            self.image_path(),
+            self.cache_path().join("covers-vw"),
+            "Front Cover",
+            transform_image_vw,
+        )
     }
 }

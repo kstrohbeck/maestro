@@ -1,14 +1,10 @@
 use crate::{
+    image::{transform_image, transform_image_vw, Image, ImageError},
     models::{album::Album, disc::DiscInContext},
     text::Text,
     utils::{comma_separated, num_digits},
 };
-use image::{self, jpeg::JPEGEncoder, FilterType, ImageError, ImageFormat, Pixel, Rgb};
-use std::{
-    fs::File,
-    io::{self, Read},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
 pub struct Track {
     title: Text,
@@ -108,73 +104,23 @@ impl<'a> TrackInContext<'a> {
         self.disc.path().join(self.filename())
     }
 
-    pub fn cover_path(&self) -> Option<PathBuf> {
-        for ext in &["png", "jpg", "jpeg"] {
-            let fname = format!("{}.{}", self.track.title().file_safe(), ext);
-            let path = self.album().cache_path().join(fname);
-            if path.exists() {
-                return Some(path);
-            }
-        }
-        return self.album().cover_path();
+    pub fn cover(&self) -> Result<Image, ImageError> {
+        Image::load_with_cache(
+            self.album().image_path(),
+            self.album().cache_path().join("covers"),
+            &self.track.title().file_safe(),
+            transform_image,
+        )
+        .or_else(|_| self.album().cover())
     }
 
-    pub fn cover(&self) -> Result<Cover, CoverError> {
-        let path = self.cover_path().ok_or(CoverError::NoCover)?;
-        let mut image_data = Vec::new();
-        File::open(path)?.read_to_end(&mut image_data)?;
-        let format = match image::guess_format(&image_data[..])? {
-            ImageFormat::PNG => Ok(Format::Png),
-            ImageFormat::JPEG => Ok(Format::Jpeg),
-            _ => Err(CoverError::UnsupportedFormat),
-        }?;
-        Ok(Cover { image_data, format })
-    }
-
-    pub fn vw_safe_cover(&self) -> Result<Cover, CoverError> {
-        let path = self.cover_path().ok_or(CoverError::NoCover)?;
-        let img = image::open(path)?
-            .resize(300, 300, FilterType::Lanczos3)
-            .to_rgb();
-        let mut image_data = Vec::new();
-        JPEGEncoder::new(&mut image_data).encode(
-            &img,
-            img.width(),
-            img.height(),
-            <Rgb<u8> as Pixel>::color_type(),
-        )?;
-        Ok(Cover {
-            image_data,
-            format: Format::Jpeg,
-        })
-    }
-}
-
-pub enum Format {
-    Png,
-    Jpeg,
-}
-
-pub struct Cover {
-    image_data: Vec<u8>,
-    format: Format,
-}
-
-pub enum CoverError {
-    NoCover,
-    Io(io::Error),
-    Image(ImageError),
-    UnsupportedFormat,
-}
-
-impl From<io::Error> for CoverError {
-    fn from(err: io::Error) -> CoverError {
-        CoverError::Io(err)
-    }
-}
-
-impl From<ImageError> for CoverError {
-    fn from(err: ImageError) -> CoverError {
-        CoverError::Image(err)
+    pub fn cover_vw(&self) -> Result<Image, ImageError> {
+        Image::load_with_cache(
+            self.album().image_path(),
+            self.album().cache_path().join("covers-vw"),
+            &self.track.title().file_safe(),
+            transform_image_vw,
+        )
+        .or_else(|_| self.album().cover_vw())
     }
 }
