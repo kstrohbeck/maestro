@@ -172,3 +172,26 @@ impl<'a> TrackInContext<'a> {
         .or_else(|_| self.album().cover_vw())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::disc::Disc;
+
+    #[test]
+    fn artists_are_inherited_from_album() {
+        let mut album = Album::new("title", PathBuf::from("."));
+        album.push_artist("a");
+        album.push_artist(Text::with_ascii("b", "c"));
+        let mut disc = Disc::new();
+        let track = Track::new("song");
+        disc.push_track(track);
+        album.push_disc(disc);
+        let disc = album.disc(1);
+        let track = disc.track(1);
+        assert_eq!(
+            track.artists(),
+            &[Text::new("a"), Text::with_ascii("b", "c")]
+        );
+    }
+}

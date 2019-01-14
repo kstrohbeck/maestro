@@ -72,3 +72,43 @@ impl<'a> DiscInContext<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn only_disc_has_empty_filename() {
+        let mut album = Album::new("title", PathBuf::from("."));
+        album.push_disc(Disc::new());
+        let disc = album.disc(1);
+        assert_eq!(disc.filename(), None);
+    }
+
+    #[test]
+    fn first_disc_is_named_correctly() {
+        let mut album = Album::new("title", PathBuf::from("."));
+        album.push_disc(Disc::new());
+        album.push_disc(Disc::new());
+        let disc = album.disc(1);
+        assert_eq!(disc.filename().unwrap(), "Disc 1");
+    }
+
+    #[test]
+    fn second_disc_is_named_correctly() {
+        let mut album = Album::new("title", PathBuf::from("."));
+        album.push_disc(Disc::new());
+        album.push_disc(Disc::new());
+        let disc = album.disc(2);
+        assert_eq!(disc.filename().unwrap(), "Disc 2");
+    }
+
+    #[test]
+    fn only_disc_has_same_path_as_album() {
+        let mut album = Album::new("title", PathBuf::from("."));
+        album.push_disc(Disc::new());
+        let disc = album.disc(1);
+        assert_eq!(disc.path(), album.path());
+    }
+}
