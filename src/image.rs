@@ -17,10 +17,17 @@ impl Format {
             Format::Jpeg => "jpg",
         }
     }
+
+    pub fn as_mime(&self) -> &'static str {
+        match self {
+            Format::Png => "image/png",
+            Format::Jpeg => "image/jpeg",
+        }
+    }
 }
 
 pub struct Image {
-    data: Vec<u8>,
+    pub data: Vec<u8>,
     pub format: Format,
 }
 
