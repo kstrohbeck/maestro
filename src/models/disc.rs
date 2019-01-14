@@ -63,7 +63,7 @@ impl<'a> DiscInContext<'a> {
     }
 
     fn filename(&self) -> Option<String> {
-        if self.album.num_discs() == 1 {
+        if self.is_only_disc() {
             None
         } else {
             let digits = num_digits(self.album.num_discs());
@@ -76,6 +76,10 @@ impl<'a> DiscInContext<'a> {
             None => self.album.path().into(),
             Some(name) => self.album.path().join(name).into(),
         }
+    }
+
+    pub fn is_only_disc(&self) -> bool {
+        self.album.num_discs() == 1
     }
 }
 
