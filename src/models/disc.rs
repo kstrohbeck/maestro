@@ -21,7 +21,12 @@ impl Disc {
     }
 
     pub fn push_track(&mut self, track: Track) {
-        self.tracks.push(track)
+        self.tracks.push(track);
+    }
+
+    pub fn with_track(mut self, track: Track) -> Self {
+        self.tracks.push(track);
+        self
     }
 }
 

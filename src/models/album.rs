@@ -45,12 +45,25 @@ impl Album {
         self.artists.push(artist.into());
     }
 
+    pub fn with_artist<T>(mut self, artist: T) -> Self
+    where
+        T: Into<Text>,
+    {
+        self.push_artist(artist);
+        self
+    }
+
     pub fn artist(&self) -> Text {
         comma_separated(self.artists())
     }
 
     pub fn set_year(&mut self, year: usize) {
-        self.year = Some(year)
+        self.year = Some(year);
+    }
+
+    pub fn with_year(mut self, year: usize) -> Self {
+        self.year = Some(year);
+        self
     }
 
     pub fn genre(&self) -> Option<&Text> {
@@ -61,7 +74,15 @@ impl Album {
     where
         T: Into<Text>,
     {
-        self.genre = Some(genre.into())
+        self.genre = Some(genre.into());
+    }
+
+    pub fn with_genre<T>(mut self, genre: T) -> Self
+    where
+        T: Into<Text>,
+    {
+        self.genre = Some(genre.into());
+        self
     }
 
     pub fn num_discs(&self) -> usize {
@@ -81,6 +102,11 @@ impl Album {
 
     pub fn push_disc(&mut self, disc: Disc) {
         self.discs.push(disc);
+    }
+
+    pub fn with_disc(mut self, disc: Disc) -> Self {
+        self.discs.push(disc);
+        self
     }
 
     pub fn path(&self) -> &Path {

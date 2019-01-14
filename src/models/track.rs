@@ -47,6 +47,14 @@ impl Track {
             .push(artist.into())
     }
 
+    pub fn with_artist<T>(mut self, artist: T) -> Self
+    where
+        T: Into<Text>,
+    {
+        self.push_artist(artist);
+        self
+    }
+
     pub fn set_year(&mut self, year: usize) {
         self.year = Some(year);
     }
@@ -180,18 +188,51 @@ mod tests {
 
     #[test]
     fn artists_are_inherited_from_album() {
-        let mut album = Album::new("title", PathBuf::from("."));
-        album.push_artist("a");
-        album.push_artist(Text::with_ascii("b", "c"));
-        let mut disc = Disc::new();
-        let track = Track::new("song");
-        disc.push_track(track);
-        album.push_disc(disc);
+        let album = Album::new("title", PathBuf::from("."))
+            .with_artist("a")
+            .with_artist(Text::with_ascii("b", "c"))
+            .with_disc(Disc::new().with_track(Track::new("song")));
         let disc = album.disc(1);
         let track = disc.track(1);
         assert_eq!(
             track.artists(),
             &[Text::new("a"), Text::with_ascii("b", "c")]
+        );
+    }
+
+    #[test]
+    fn artists_are_overridden_by_track() {
+        let album = Album::new("title", PathBuf::from("."))
+            .with_artist("a")
+            .with_artist(Text::with_ascii("b", "c"))
+            .with_disc(Disc::new().with_track(Track::new("song").with_artist("d")));
+        let disc = album.disc(1);
+        let track = disc.track(1);
+        assert_eq!(track.artists(), &[Text::new("d")]);
+    }
+
+    #[test]
+    fn no_album_artists_without_override() {
+        let album = Album::new("title", PathBuf::from("."))
+            .with_artist("a")
+            .with_artist(Text::with_ascii("b", "c"))
+            .with_disc(Disc::new().with_track(Track::new("song")));
+        let disc = album.disc(1);
+        let track = disc.track(1);
+        assert_eq!(track.album_artists(), None);
+    }
+
+    #[test]
+    fn album_artists_are_set_when_overridden() {
+        let album = Album::new("title", PathBuf::from("."))
+            .with_artist("a")
+            .with_artist(Text::with_ascii("b", "c"))
+            .with_disc(Disc::new().with_track(Track::new("song").with_artist("d")));
+        let disc = album.disc(1);
+        let track = disc.track(1);
+        assert_eq!(
+            track.album_artists(),
+            Some(&[Text::new("a"), Text::with_ascii("b", "c")][..])
         );
     }
 }
