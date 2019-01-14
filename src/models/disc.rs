@@ -15,6 +15,10 @@ impl Disc {
     pub fn num_tracks(&self) -> usize {
         self.tracks.len()
     }
+
+    pub fn push_track(&mut self, track: Track) {
+        self.tracks.push(track)
+    }
 }
 
 pub struct DiscInContext<'a> {

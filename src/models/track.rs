@@ -23,6 +23,38 @@ impl Track {
     pub fn artists(&self) -> Option<&[Text]> {
         self.artists.as_ref().map(Vec::as_slice)
     }
+
+    pub fn push_artist<T>(&mut self, artist: T)
+    where
+        T: Into<Text>,
+    {
+        self.artists.get_or_insert_with(Vec::new).push(artist.into())
+    }
+
+    pub fn set_year(&mut self, year: usize) {
+        self.year = Some(year);
+    }
+
+    pub fn set_genre<T>(&mut self, genre: T)
+    where
+        T: Into<Text>,
+    {
+        self.genre = Some(genre.into())
+    }
+
+    pub fn set_comment<T>(&mut self, comment: T)
+    where
+        T: Into<Text>,
+    {
+        self.comment = Some(comment.into())
+    }
+
+    pub fn set_lyrics<T>(&mut self, lyrics: T)
+    where
+        T: Into<Text>,
+    {
+        self.lyrics = Some(lyrics.into())
+    }
 }
 
 pub struct TrackInContext<'a> {

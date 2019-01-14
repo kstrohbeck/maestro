@@ -49,8 +49,19 @@ impl Album {
         comma_separated(self.artists())
     }
 
+    pub fn set_year(&mut self, year: usize) {
+        self.year = Some(year)
+    }
+
     pub fn genre(&self) -> Option<&Text> {
         self.genre.as_ref()
+    }
+
+    pub fn set_genre<T>(&mut self, genre: T)
+    where
+        T: Into<Text>,
+    {
+        self.genre = Some(genre.into())
     }
 
     pub fn num_discs(&self) -> usize {
@@ -66,6 +77,10 @@ impl Album {
             .iter()
             .zip(1..)
             .map(move |(d, i)| DiscInContext::new(&self, d, i))
+    }
+
+    pub fn push_disc(&mut self, disc: Disc) {
+        self.discs.push(disc);
     }
 
     pub fn path(&self) -> &Path {
