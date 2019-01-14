@@ -16,6 +16,20 @@ pub struct Track {
 }
 
 impl Track {
+    pub fn new<T>(title: T) -> Track
+    where
+        T: Into<Text>,
+    {
+        Track {
+            title: title.into(),
+            artists: None,
+            year: None,
+            genre: None,
+            comment: None,
+            lyrics: None,
+        }
+    }
+
     pub fn title(&self) -> &Text {
         &self.title
     }
@@ -28,7 +42,9 @@ impl Track {
     where
         T: Into<Text>,
     {
-        self.artists.get_or_insert_with(Vec::new).push(artist.into())
+        self.artists
+            .get_or_insert_with(Vec::new)
+            .push(artist.into())
     }
 
     pub fn set_year(&mut self, year: usize) {

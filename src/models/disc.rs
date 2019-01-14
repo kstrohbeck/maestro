@@ -12,6 +12,10 @@ pub struct Disc {
 }
 
 impl Disc {
+    pub fn new() -> Disc {
+        Disc { tracks: Vec::new() }
+    }
+
     pub fn num_tracks(&self) -> usize {
         self.tracks.len()
     }
