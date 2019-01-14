@@ -107,7 +107,7 @@ impl<'a> TrackInContext<'a> {
     pub fn cover(&self) -> Result<Image, ImageError> {
         Image::load_with_cache(
             self.album().image_path(),
-            self.album().cache_path().join("covers"),
+            self.album().covers_path(),
             &self.track.title().file_safe(),
             transform_image,
         )
@@ -117,7 +117,7 @@ impl<'a> TrackInContext<'a> {
     pub fn cover_vw(&self) -> Result<Image, ImageError> {
         Image::load_with_cache(
             self.album().image_path(),
-            self.album().cache_path().join("covers-vw"),
+            self.album().covers_vw_path(),
             &self.track.title().file_safe(),
             transform_image_vw,
         )

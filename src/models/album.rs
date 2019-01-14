@@ -59,10 +59,18 @@ impl Album {
         self.path().join("extras/.cache")
     }
 
+    pub fn covers_path(&self) -> PathBuf {
+        self.cache_path().join("covers")
+    }
+
+    pub fn covers_vw_path(&self) -> PathBuf {
+        self.cache_path().join("covers-vw")
+    }
+
     pub fn cover(&self) -> Result<Image, ImageError> {
         Image::load_with_cache(
             self.image_path(),
-            self.cache_path().join("covers"),
+            self.covers_path(),
             "Front Cover",
             transform_image,
         )
@@ -71,7 +79,7 @@ impl Album {
     pub fn cover_vw(&self) -> Result<Image, ImageError> {
         Image::load_with_cache(
             self.image_path(),
-            self.cache_path().join("covers-vw"),
+            self.covers_vw_path(),
             "Front Cover",
             transform_image_vw,
         )
