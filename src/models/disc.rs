@@ -7,13 +7,14 @@ use crate::{
 };
 use std::{borrow::Cow, path::Path};
 
+#[derive(Default)]
 pub struct Disc {
     tracks: Vec<Track>,
 }
 
 impl Disc {
     pub fn new() -> Disc {
-        Disc { tracks: Vec::new() }
+        Default::default()
     }
 
     pub fn num_tracks(&self) -> usize {
