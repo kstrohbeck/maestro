@@ -32,18 +32,25 @@ impl Text {
     }
 
     pub fn from_yaml(yaml: Yaml) -> Option<Text> {
+        macro_rules! pop_string {
+            ($hash:ident[$key:expr]) => {
+                $hash
+                    .remove(&Yaml::from_str($key))
+                    .and_then(Yaml::into_string)
+            };
+        }
+
         // TODO: Return Result instead.
         match yaml {
             Yaml::String(text) => Some(Text::new(text)),
-            Yaml::Hash(mut hash) => {
-                let text = hash
-                    .remove(&Yaml::String("text".to_string()))?
-                    .into_string()?;
-                Some(match hash.remove(&Yaml::String("ascii".to_string())) {
-                    Some(ascii) => Text::with_ascii(text, ascii.into_string()?),
+            Yaml::Hash(mut hash) => Some({
+                let text = pop_string!(hash["text"])?;
+
+                match pop_string!(hash["ascii"]) {
+                    Some(ascii) => Text::with_ascii(text, ascii),
                     None => Text::new(text),
-                })
-            }
+                }
+            }),
             _ => None,
         }
     }
