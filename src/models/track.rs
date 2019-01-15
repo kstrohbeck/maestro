@@ -8,6 +8,7 @@ use id3::{frame::Content, Frame, Tag, Version};
 use std::path::PathBuf;
 use yaml_rust::Yaml;
 
+#[derive(Debug, PartialEq)]
 pub struct Track {
     title: Text,
     artists: Option<Vec<Text>>,
@@ -50,14 +51,19 @@ impl Track {
             Yaml::Hash(mut hash) => {
                 let title = pop!(hash["title"] as Text)?;
 
-                let artists = pop!(hash["artists"])
-                    .and_then(Yaml::into_vec)
-                    .and_then(|a| {
-                        a.into_iter()
+                let artists = match pop!(hash["artists"]) {
+                    Some(artists) => Some(
+                        artists
+                            .into_vec()?
+                            .into_iter()
                             .map(Text::from_yaml)
-                            .collect::<Option<Vec<_>>>()
-                    })
-                    .or_else(|| pop!(hash["artist"] as Text).map(|t| vec![t]));
+                            .collect::<Option<Vec<_>>>()?,
+                    ),
+                    None => match pop!(hash["artist"]) {
+                        Some(artist) => Some(vec![Text::from_yaml(artist)?]),
+                        None => None,
+                    },
+                };
 
                 let year = pop!(hash["year"])
                     .and_then(Yaml::into_i64)
@@ -326,6 +332,203 @@ impl<'a> TrackInContext<'a> {
 mod tests {
     use super::*;
     use crate::models::disc::Disc;
+    use yaml_rust::YamlLoader;
+
+    macro_rules! yaml_to_track {
+        ($s:expr) => {
+            Track::from_yaml(YamlLoader::load_from_str($s).unwrap().pop().unwrap())
+        };
+    }
+
+    #[test]
+    fn string_is_parsed_to_track_with_title() {
+        let yaml = YamlLoader::load_from_str("\"foo\"").unwrap().pop().unwrap();
+        let track = Track::from_yaml(yaml).unwrap();
+        assert_eq!(track.title().text(), "foo");
+    }
+
+    #[test]
+    fn simple_title_is_parsed_from_yaml() {
+        let track = yaml_to_track!("title: foo").unwrap();
+        assert_eq!(track.title(), &Text::new("foo"));
+    }
+
+    #[test]
+    fn complex_title_is_parsed_from_yaml() {
+        let track = yaml_to_track!(
+            "
+            title:
+                text: foo
+                ascii: bar
+            "
+        )
+        .unwrap();
+        assert_eq!(track.title(), &Text::with_ascii("foo", "bar"));
+    }
+
+    #[test]
+    fn single_simple_artist_is_parsed_from_yaml() {
+        let track = yaml_to_track!(
+            "
+            title: foo
+            artist: bar
+            "
+        ).unwrap();
+        assert_eq!(track.artists(), Some(&[Text::new("bar")][..]));
+    }
+
+    #[test]
+    fn single_complex_artist_is_parsed_from_yaml() {
+        let track = yaml_to_track!(
+            "
+            title: foo
+            artist:
+                text: bar
+                ascii: baz
+            "
+        ).unwrap();
+        assert_eq!(track.artists(), Some(&[Text::with_ascii("bar", "baz")][..]));
+    }
+
+    #[test]
+    fn array_in_artist_is_not_parsed_from_yaml() {
+        let track = yaml_to_track!(
+            "
+            title: foo
+            artist:
+                - foo
+                - bar
+            "
+        );
+        assert_eq!(track, None);
+    }
+
+    #[test]
+    fn multi_simple_artists_are_parsed_from_yaml() {
+        let track = yaml_to_track!(
+            "
+            title: foo
+            artists:
+                - bar
+                - baz
+            "
+        ).unwrap();
+        assert_eq!(
+            track.artists(),
+            Some(&[Text::new("bar"), Text::new("baz")][..])
+        );
+    }
+
+    #[test]
+    fn multi_mixed_artists_are_parsed_from_yaml() {
+        let track = yaml_to_track!(
+            "
+            title: foo
+            artists:
+                - bar
+                - text: baz
+                  ascii: quux
+            "
+        ).unwrap();
+        assert_eq!(
+            track.artists(),
+            Some(&[Text::new("bar"), Text::with_ascii("baz", "quux")][..])
+        );
+    }
+
+    #[test]
+    fn single_artist_in_multi_is_not_parsed_from_yaml() {
+        let track = yaml_to_track!(
+            "
+            title: foo
+            artists: bar
+            "
+        );
+        assert_eq!(track, None);
+    }
+
+    #[test]
+    fn year_is_parsed_from_yaml() {
+        let track = yaml_to_track!(
+            "
+            title: foo
+            year: 1990
+            "
+        ).unwrap();
+        assert_eq!(track.year, Some(1990));
+    }
+
+    #[test]
+    fn simple_genre_is_parsed_from_yaml() {
+        let track = yaml_to_track!(
+            "
+            title: foo
+            genre: Music
+            "
+        ).unwrap();
+        assert_eq!(track.genre, Some(Text::new("Music")));
+    }
+
+    #[test]
+    fn complex_genre_is_parsed_from_yaml() {
+        let track = yaml_to_track!(
+            "
+            title: foo
+            genre:
+                text: Music
+                ascii: Not Music
+            "
+        ).unwrap();
+        assert_eq!(track.genre, Some(Text::with_ascii("Music", "Not Music")));
+    }
+
+    #[test]
+    fn simple_comment_is_parsed_from_yaml() {
+        let track = yaml_to_track!(
+            "
+            title: foo
+            comment: stuff
+            "
+        ).unwrap();
+        assert_eq!(track.comment, Some(Text::new("stuff")));
+    }
+
+    #[test]
+    fn complex_comment_is_parsed_from_yaml() {
+        let track = yaml_to_track!(
+            "
+            title: foo
+            comment:
+                text: stuff
+                ascii: other
+            "
+        ).unwrap();
+        assert_eq!(track.comment, Some(Text::with_ascii("stuff", "other")));
+    }
+
+    #[test]
+    fn simple_lyrics_are_parsed_from_yaml() {
+        let track = yaml_to_track!(
+            "
+            title: foo
+            lyrics: stuff
+            "
+        ).unwrap();
+        assert_eq!(track.lyrics, Some(Text::new("stuff")));
+    }
+
+    #[test]
+    fn complex_lyrics_are_parsed_from_yaml() {
+        let track = yaml_to_track!(
+            "
+            title: foo
+            lyrics:
+                text: stuff
+                ascii: other
+            "
+        ).unwrap();
+        assert_eq!(track.lyrics, Some(Text::with_ascii("stuff", "other")));
+    }
 
     #[test]
     fn artists_are_inherited_from_album() {
