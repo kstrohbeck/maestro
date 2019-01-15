@@ -6,6 +6,7 @@ use crate::{
 };
 use id3::{frame::Content, Frame, Tag, Version};
 use std::path::PathBuf;
+use yaml_rust::Yaml;
 
 pub struct Track {
     title: Text,
@@ -28,6 +29,53 @@ impl Track {
             genre: None,
             comment: None,
             lyrics: None,
+        }
+    }
+
+    pub fn from_yaml(yaml: Yaml) -> Option<Self> {
+        macro_rules! pop {
+            ($hash:ident[$key:expr]) => {
+                $hash.remove(&Yaml::from_str($key))
+            };
+            ($hash:ident[$key:expr] as Text) => {
+                $hash
+                    .remove(&Yaml::from_str($key))
+                    .and_then(Text::from_yaml)
+            };
+        }
+
+        // TODO: Return Result.
+        match yaml {
+            Yaml::String(title) => Some(Track::new(title)),
+            Yaml::Hash(mut hash) => {
+                let title = pop!(hash["title"] as Text)?;
+
+                let artists = pop!(hash["artists"])
+                    .and_then(Yaml::into_vec)
+                    .and_then(|a| {
+                        a.into_iter()
+                            .map(Text::from_yaml)
+                            .collect::<Option<Vec<_>>>()
+                    })
+                    .or_else(|| pop!(hash["artist"] as Text).map(|t| vec![t]));
+
+                let year = pop!(hash["year"])
+                    .and_then(Yaml::into_i64)
+                    .map(|y| y as usize);
+                let genre = pop!(hash["genre"] as Text);
+                let comment = pop!(hash["comment"] as Text);
+                let lyrics = pop!(hash["lyrics"] as Text);
+
+                Some(Track {
+                    title,
+                    artists,
+                    year,
+                    genre,
+                    comment,
+                    lyrics,
+                })
+            }
+            _ => None,
         }
     }
 
