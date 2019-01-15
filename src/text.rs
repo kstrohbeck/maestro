@@ -1,6 +1,7 @@
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::{borrow::Cow, iter::Sum, ops::Add};
+use yaml_rust::Yaml;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Text {
@@ -27,6 +28,21 @@ impl Text {
         Text {
             text: text.into(),
             ascii: Some(ascii.into()),
+        }
+    }
+
+    pub fn from_yaml(yaml: Yaml) -> Option<Text> {
+        // TODO: Return Result instead.
+        match yaml {
+            Yaml::String(text) => Some(Text::new(text)),
+            Yaml::Hash(mut hash) => {
+                let text = hash.remove(&Yaml::String("text".to_string()))?.into_string()?;
+                Some(match hash.remove(&Yaml::String("ascii".to_string())) {
+                    Some(ascii) => Text::with_ascii(text, ascii.into_string()?),
+                    None => Text::new(text),
+                })
+            }
+            _ => None,
         }
     }
 
@@ -128,7 +144,8 @@ impl Sum for Text {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cow, Text};
+    use super::*;
+    use yaml_rust::YamlLoader;
 
     fn is_borrowed(cow: Cow<str>) -> bool {
         match cow {
@@ -142,6 +159,27 @@ mod tests {
             Cow::Borrowed(_) => false,
             Cow::Owned(_) => true,
         }
+    }
+
+    #[test]
+    fn simple_yaml_parses_text() {
+        let yaml = YamlLoader::load_from_str("\"foo\"").unwrap().pop().unwrap();
+        let text = Text::from_yaml(yaml).unwrap();
+        assert_eq!(text, Text::new("foo"));
+    }
+
+    #[test]
+    fn yaml_with_only_text_parses_text() {
+        let yaml = YamlLoader::load_from_str("text: foo").unwrap().pop().unwrap();
+        let text = Text::from_yaml(yaml).unwrap();
+        assert_eq!(text, Text::new("foo"));
+    }
+
+    #[test]
+    fn yaml_with_text_and_ascii_parses_both() {
+        let yaml = YamlLoader::load_from_str("text: foo\nascii: bar").unwrap().pop().unwrap();
+        let text = Text::from_yaml(yaml).unwrap();
+        assert_eq!(text, Text::with_ascii("foo", "bar"));
     }
 
     #[test]
