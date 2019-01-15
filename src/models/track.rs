@@ -232,7 +232,7 @@ impl<'a> TrackInContext<'a> {
     pub fn update_id3(&self) {
         let mut tag = Tag::new();
         tag.set_title(self.title().text());
-        if self.artists().len() > 0 {
+        if !self.artists().is_empty() {
             tag.set_artist(self.artist().text());
         }
         tag.set_track(self.track_number as u32);
@@ -294,7 +294,7 @@ impl<'a> TrackInContext<'a> {
     pub fn update_id3_vw(&self) {
         let mut tag = Tag::new();
         tag.set_title(self.title().ascii());
-        if self.artists().len() > 0 {
+        if !self.artists().is_empty() {
             tag.set_artist(self.artist().ascii());
         }
         tag.set_track(self.track_number as u32);
