@@ -32,8 +32,8 @@ impl Text {
     }
 
     pub fn from_yaml(yaml: Yaml) -> Option<Text> {
-        macro_rules! pop_string {
-            ($hash:ident[$key:expr]) => {
+        macro_rules! pop {
+            ($hash:ident[$key:expr] as String) => {
                 $hash
                     .remove(&Yaml::from_str($key))
                     .and_then(Yaml::into_string)
@@ -44,9 +44,9 @@ impl Text {
         match yaml {
             Yaml::String(text) => Some(Text::new(text)),
             Yaml::Hash(mut hash) => Some({
-                let text = pop_string!(hash["text"])?;
+                let text = pop!(hash["text"] as String)?;
 
-                match pop_string!(hash["ascii"]) {
+                match pop!(hash["ascii"] as String) {
                     Some(ascii) => Text::with_ascii(text, ascii),
                     None => Text::new(text),
                 }
