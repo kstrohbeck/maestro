@@ -36,7 +36,9 @@ impl Text {
         match yaml {
             Yaml::String(text) => Some(Text::new(text)),
             Yaml::Hash(mut hash) => {
-                let text = hash.remove(&Yaml::String("text".to_string()))?.into_string()?;
+                let text = hash
+                    .remove(&Yaml::String("text".to_string()))?
+                    .into_string()?;
                 Some(match hash.remove(&Yaml::String("ascii".to_string())) {
                     Some(ascii) => Text::with_ascii(text, ascii.into_string()?),
                     None => Text::new(text),
@@ -170,14 +172,20 @@ mod tests {
 
     #[test]
     fn yaml_with_only_text_parses_text() {
-        let yaml = YamlLoader::load_from_str("text: foo").unwrap().pop().unwrap();
+        let yaml = YamlLoader::load_from_str("text: foo")
+            .unwrap()
+            .pop()
+            .unwrap();
         let text = Text::from_yaml(yaml).unwrap();
         assert_eq!(text, Text::new("foo"));
     }
 
     #[test]
     fn yaml_with_text_and_ascii_parses_both() {
-        let yaml = YamlLoader::load_from_str("text: foo\nascii: bar").unwrap().pop().unwrap();
+        let yaml = YamlLoader::load_from_str("text: foo\nascii: bar")
+            .unwrap()
+            .pop()
+            .unwrap();
         let text = Text::from_yaml(yaml).unwrap();
         assert_eq!(text, Text::with_ascii("foo", "bar"));
     }
