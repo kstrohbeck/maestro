@@ -5,6 +5,7 @@ use crate::{
     utils::comma_separated,
 };
 use std::path::{Path, PathBuf};
+use yaml_rust::Yaml;
 
 pub struct Album {
     title: Text,
@@ -28,6 +29,53 @@ impl Album {
             discs: Vec::new(),
             path,
         }
+    }
+
+    pub fn from_yaml_and_path(yaml: Yaml, path: PathBuf) -> Option<Album> {
+        let mut hash = yaml.into_hash()?;
+
+        let title = pop!(hash["title"]).and_then(Text::from_yaml)?;
+
+        // TODO: Abstract this plural/singular pattern into a util.
+        let artists = match pop!(hash["artists"]) {
+            Some(artists) => artists
+                .into_vec()?
+                .into_iter()
+                .map(Text::from_yaml)
+                .collect::<Option<Vec<_>>>(),
+            None => pop!(hash["artist"])
+                .and_then(Text::from_yaml)
+                .map(|t| vec![t]),
+        }?;
+
+        let discs = match pop!(hash["discs"]) {
+            Some(discs) => Some(
+                discs
+                    .into_vec()?
+                    .into_iter()
+                    .map(Disc::from_yaml)
+                    .collect::<Option<Vec<_>>>()?,
+            ),
+            None => match pop!(hash["tracks"]) {
+                Some(tracks) => Some(vec![Disc::from_yaml(tracks)?]),
+                None => None,
+            },
+        }?;
+
+        let year = pop!(hash["year"])
+            .and_then(Yaml::into_i64)
+            .map(|y| y as usize);
+
+        let genre = pop!(hash["genre"]).and_then(Text::from_yaml);
+
+        Some(Album {
+            title,
+            artists,
+            year,
+            genre,
+            discs,
+            path,
+        })
     }
 
     pub fn title(&self) -> &Text {
