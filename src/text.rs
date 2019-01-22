@@ -32,14 +32,6 @@ impl Text {
     }
 
     pub fn from_yaml(yaml: Yaml) -> Option<Text> {
-        macro_rules! pop {
-            ($hash:ident[$key:expr] as String) => {
-                $hash
-                    .remove(&Yaml::from_str($key))
-                    .and_then(Yaml::into_string)
-            };
-        }
-
         // TODO: Return Result instead.
         match yaml {
             Yaml::String(text) => Some(Text::new(text)),

@@ -34,22 +34,11 @@ impl Track {
     }
 
     pub fn from_yaml(yaml: Yaml) -> Option<Self> {
-        macro_rules! pop {
-            ($hash:ident[$key:expr]) => {
-                $hash.remove(&Yaml::from_str($key))
-            };
-            ($hash:ident[$key:expr] as Text) => {
-                $hash
-                    .remove(&Yaml::from_str($key))
-                    .and_then(Text::from_yaml)
-            };
-        }
-
         // TODO: Return Result.
         match yaml {
             Yaml::String(title) => Some(Track::new(title)),
             Yaml::Hash(mut hash) => {
-                let title = pop!(hash["title"] as Text)?;
+                let title = pop!(hash["title"]).and_then(Text::from_yaml)?;
 
                 let artists = match pop!(hash["artists"]) {
                     Some(artists) => Some(
@@ -68,9 +57,9 @@ impl Track {
                 let year = pop!(hash["year"])
                     .and_then(Yaml::into_i64)
                     .map(|y| y as usize);
-                let genre = pop!(hash["genre"] as Text);
-                let comment = pop!(hash["comment"] as Text);
-                let lyrics = pop!(hash["lyrics"] as Text);
+                let genre = pop!(hash["genre"]).and_then(Text::from_yaml);
+                let comment = pop!(hash["comment"]).and_then(Text::from_yaml);
+                let lyrics = pop!(hash["lyrics"]).and_then(Text::from_yaml);
 
                 Some(Track {
                     title,
@@ -373,7 +362,8 @@ mod tests {
             title: foo
             artist: bar
             "
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(track.artists(), Some(&[Text::new("bar")][..]));
     }
 
@@ -386,7 +376,8 @@ mod tests {
                 text: bar
                 ascii: baz
             "
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(track.artists(), Some(&[Text::with_ascii("bar", "baz")][..]));
     }
 
@@ -412,7 +403,8 @@ mod tests {
                 - bar
                 - baz
             "
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(
             track.artists(),
             Some(&[Text::new("bar"), Text::new("baz")][..])
@@ -429,7 +421,8 @@ mod tests {
                 - text: baz
                   ascii: quux
             "
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(
             track.artists(),
             Some(&[Text::new("bar"), Text::with_ascii("baz", "quux")][..])
@@ -454,7 +447,8 @@ mod tests {
             title: foo
             year: 1990
             "
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(track.year, Some(1990));
     }
 
@@ -465,7 +459,8 @@ mod tests {
             title: foo
             genre: Music
             "
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(track.genre, Some(Text::new("Music")));
     }
 
@@ -478,7 +473,8 @@ mod tests {
                 text: Music
                 ascii: Not Music
             "
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(track.genre, Some(Text::with_ascii("Music", "Not Music")));
     }
 
@@ -489,7 +485,8 @@ mod tests {
             title: foo
             comment: stuff
             "
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(track.comment, Some(Text::new("stuff")));
     }
 
@@ -502,7 +499,8 @@ mod tests {
                 text: stuff
                 ascii: other
             "
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(track.comment, Some(Text::with_ascii("stuff", "other")));
     }
 
@@ -513,7 +511,8 @@ mod tests {
             title: foo
             lyrics: stuff
             "
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(track.lyrics, Some(Text::new("stuff")));
     }
 
@@ -526,7 +525,8 @@ mod tests {
                 text: stuff
                 ascii: other
             "
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(track.lyrics, Some(Text::with_ascii("stuff", "other")));
     }
 
