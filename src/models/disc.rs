@@ -6,6 +6,7 @@ use crate::{
     utils::num_digits,
 };
 use std::{borrow::Cow, path::Path};
+use yaml_rust::Yaml;
 
 #[derive(Default)]
 pub struct Disc {
@@ -15,6 +16,19 @@ pub struct Disc {
 impl Disc {
     pub fn new() -> Disc {
         Default::default()
+    }
+
+    pub fn from_tracks(tracks: Vec<Track>) -> Disc {
+        Disc { tracks }
+    }
+
+    pub fn from_yaml(yaml: Yaml) -> Option<Disc> {
+        let tracks = yaml
+            .into_vec()?
+            .into_iter()
+            .map(Track::from_yaml)
+            .collect::<Option<Vec<_>>>()?;
+        Some(Disc::from_tracks(tracks))
     }
 
     pub fn num_tracks(&self) -> usize {
