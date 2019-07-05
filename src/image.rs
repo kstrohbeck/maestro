@@ -1,3 +1,5 @@
+//! Image handling and transformation.
+
 use image::{self, jpeg::JPEGEncoder, png::PNGEncoder, DynamicImage, FilterType, Pixel, Rgb};
 use std::{
     fs::File,
@@ -5,12 +7,14 @@ use std::{
     path::Path,
 };
 
+/// An image format.
 pub enum Format {
     Png,
     Jpeg,
 }
 
 impl Format {
+    /// Gets the format's file extension.
     fn as_ext(&self) -> &'static str {
         match self {
             Format::Png => "png",
@@ -18,6 +22,7 @@ impl Format {
         }
     }
 
+    /// Gets the format's MIME type.
     pub fn as_mime(&self) -> &'static str {
         match self {
             Format::Png => "image/png",
@@ -26,12 +31,20 @@ impl Format {
     }
 }
 
+/// Raw image data.
 pub struct Image {
     pub data: Vec<u8>,
     pub format: Format,
 }
 
 impl Image {
+    /// Load an image at a path.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// let img = Image::load("images/foo.jpg")?;
+    /// ```
     pub fn load<P>(path: P) -> Result<Self, ImageError>
     where
         P: AsRef<Path>,
@@ -46,6 +59,13 @@ impl Image {
         Ok(Self { data, format })
     }
 
+    /// Load an image at a path, taking a cached version if it exists.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// let img = Image::load_with_cache("images", ".cache", "foo", transform_image);
+    /// ```
     pub fn load_with_cache<P, Q, F>(
         images: P,
         cache: Q,
@@ -86,10 +106,12 @@ impl Image {
         Err(ImageError::NoImage)
     }
 
+    /// Get the image data.
     pub fn data(&self) -> &[u8] {
         &self.data
     }
 
+    /// Create a savable image from the data.
     pub fn as_dynamic(&self) -> image::ImageResult<DynamicImage> {
         let format = match self.format {
             Format::Png => image::ImageFormat::PNG,
@@ -97,8 +119,25 @@ impl Image {
         };
         image::load_from_memory_with_format(self.data(), format)
     }
+
+    /// Create an `Image` from PNG data.
+    pub fn from_png(data: Vec<u8>) -> Self {
+        Self {
+            data,
+            format: Format::Png,
+        }
+    }
+
+    /// Create an `Image` from JPEG data.
+    pub fn from_jpeg(data: Vec<u8>) -> Self {
+        Self {
+            data,
+            format: Format::Jpeg,
+        }
+    }
 }
 
+/// An error when loading or transforming an image.
 #[derive(Debug)]
 pub enum ImageError {
     NoImage,
@@ -119,6 +158,7 @@ impl From<image::ImageError> for ImageError {
     }
 }
 
+/// Transform an image into a standard format.
 pub fn transform_image(img: DynamicImage) -> Result<Image, ImageError> {
     let img = img.resize(1000, 1000, FilterType::Lanczos3).to_rgb();
 
@@ -140,18 +180,13 @@ pub fn transform_image(img: DynamicImage) -> Result<Image, ImageError> {
     )?;
 
     if png_data.len() <= jpeg_data.len() {
-        Ok(Image {
-            data: png_data,
-            format: Format::Png,
-        })
+        Ok(Image::from_png(png_data))
     } else {
-        Ok(Image {
-            data: jpeg_data,
-            format: Format::Jpeg,
-        })
+        Ok(Image::from_jpeg(jpeg_data))
     }
 }
 
+/// Transform an image into a format for car use.
 pub fn transform_image_vw(img: DynamicImage) -> Result<Image, ImageError> {
     let img = img.resize(300, 300, FilterType::Lanczos3).to_rgb();
     let mut data = Vec::new();
@@ -161,10 +196,7 @@ pub fn transform_image_vw(img: DynamicImage) -> Result<Image, ImageError> {
         img.height(),
         <Rgb<u8> as Pixel>::color_type(),
     )?;
-    Ok(Image {
-        data,
-        format: Format::Jpeg,
-    })
+    Ok(Image::from_jpeg(data))
 }
 
 #[cfg(test)]
