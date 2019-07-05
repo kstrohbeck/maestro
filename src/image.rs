@@ -181,9 +181,9 @@ mod tests {
     #[test]
     #[ignore]
     fn transformed_uncached_image_is_saved_in_cache() {
-        let mut images = PathBuf::new();
-        images.push(env!("CARGO_MANIFEST_DIR"));
-        images.push("data");
+        let images = [env!("CARGO_MANIFEST_DIR"), "data"]
+            .iter()
+            .collect::<PathBuf>();
         let cache = tempdir().ok().unwrap();
         let _ = Image::load_with_cache(&images, cache.path(), "coast", transform_image).unwrap();
         assert!(cache.path().join("coast.jpg").exists());
@@ -192,9 +192,9 @@ mod tests {
     #[test]
     #[ignore]
     fn cached_image_is_used() {
-        let mut images = PathBuf::new();
-        images.push(env!("CARGO_MANIFEST_DIR"));
-        images.push("data");
+        let images = [env!("CARGO_MANIFEST_DIR"), "data"]
+            .iter()
+            .collect::<PathBuf>();
         let uncached_img = images.join("coast.jpg");
         let cache = tempdir().ok().unwrap();
         let cached_img = cache.path().join("coast.jpg");
