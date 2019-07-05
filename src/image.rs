@@ -1,13 +1,13 @@
 //! Image handling and transformation.
 
-use image::{self, jpeg::JPEGEncoder, png::PNGEncoder, DynamicImage, FilterType, Pixel, Rgb};
+use image::DynamicImage;
 use std::{
-    fs::File,
-    io::{self, Read, Write},
+    convert::{TryFrom, TryInto},
     path::Path,
 };
 
 /// An image format.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Format {
     Png,
     Jpeg,
@@ -15,7 +15,15 @@ pub enum Format {
 
 impl Format {
     /// Gets the format's file extension.
-    fn as_ext(&self) -> &'static str {
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use songmaster_rs::image::Format;
+    /// let img_fmt = Format::Png;
+    /// let filename = format!("foo.{}", img_fmt.ext());
+    /// ```
+    pub fn ext(self) -> &'static str {
         match self {
             Format::Png => "png",
             Format::Jpeg => "jpg",
@@ -23,7 +31,7 @@ impl Format {
     }
 
     /// Gets the format's MIME type.
-    pub fn as_mime(&self) -> &'static str {
+    pub fn mime(self) -> &'static str {
         match self {
             Format::Png => "image/png",
             Format::Jpeg => "image/jpeg",
@@ -31,40 +39,74 @@ impl Format {
     }
 }
 
+impl TryFrom<image::ImageFormat> for Format {
+    type Error = ImageError;
+
+    fn try_from(value: image::ImageFormat) -> Result<Self, Self::Error> {
+        match value {
+            image::ImageFormat::PNG => Ok(Format::Png),
+            image::ImageFormat::JPEG => Ok(Format::Jpeg),
+            _ => Err(ImageError::UnsupportedFormat),
+        }
+    }
+}
+
 /// Raw image data.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Image {
     pub data: Vec<u8>,
     pub format: Format,
 }
 
 impl Image {
+    /// Create a new image from data.
+    pub fn new(data: Vec<u8>, format: Format) -> Self {
+        Self { data, format }
+    }
+
+    /// Create an `Image` from PNG data.
+    pub fn from_png(data: Vec<u8>) -> Self {
+        Self::new(data, Format::Png)
+    }
+
+    /// Create an `Image` from JPEG data.
+    pub fn from_jpeg(data: Vec<u8>) -> Self {
+        Self::new(data, Format::Jpeg)
+    }
+
     /// Load an image at a path.
     ///
     /// # Examples
     ///
     /// ```rust,no_run
+    /// # use songmaster_rs::image::{Image, ImageError};
     /// let img = Image::load("images/foo.jpg")?;
+    /// # Ok::<(), ImageError>(())
     /// ```
     pub fn load<P>(path: P) -> Result<Self, ImageError>
     where
         P: AsRef<Path>,
     {
-        let mut data = Vec::new();
-        File::open(path)?.read_to_end(&mut data)?;
-        let format = match image::guess_format(&data[..])? {
-            image::ImageFormat::PNG => Ok(Format::Png),
-            image::ImageFormat::JPEG => Ok(Format::Jpeg),
-            _ => Err(ImageError::UnsupportedFormat),
-        }?;
+        use std::fs;
+
+        let data = fs::read(path)?;
+        let format = image::guess_format(&data[..])?.try_into()?;
         Ok(Self { data, format })
     }
 
     /// Load an image at a path, taking a cached version if it exists.
     ///
+    /// This function searches for images with the `.png`, `.jpg`, and `.jpeg` file extensions,
+    /// processes their raw data using `process`, and returns the resultant image. It checks for
+    /// pre-processed images in the cache first. If it finds an image that was not in the cache, it
+    /// caches the processed image.
+    ///
     /// # Examples
     ///
     /// ```rust,no_run
-    /// let img = Image::load_with_cache("images", ".cache", "foo", transform_image);
+    /// # use songmaster_rs::image::{Image, ImageError, transform_image};
+    /// let img = Image::load_with_cache("images", ".cache", "foo", transform_image)?;
+    /// # Ok::<(), ImageError>(())
     /// ```
     pub fn load_with_cache<P, Q, F>(
         images: P,
@@ -77,6 +119,8 @@ impl Image {
         Q: AsRef<Path>,
         F: Fn(DynamicImage) -> Result<Self, ImageError>,
     {
+        use std::fs;
+
         let images = images.as_ref();
         let cache = cache.as_ref();
         let fnames = ["png", "jpg", "jpeg"]
@@ -84,26 +128,21 @@ impl Image {
             .map(|ext| format!("{}.{}", name, ext))
             .collect::<Vec<_>>();
 
-        for fname in &fnames {
-            let path = cache.join(fname);
-            if path.exists() {
-                return Image::load(path);
-            }
-        }
+        let mut images_paths = fnames.iter().map(|n| images.join(n));
+        let mut cache_paths = fnames.iter().map(|n| cache.join(n));
 
-        for fname in &fnames {
-            let path = images.join(fname);
-            if path.exists() {
-                let raw = image::open(&path)?;
-                let image = process(raw)?;
-                let output_name = format!("{}.{}", name, image.format.as_ext());
-                let cache_path = cache.join(output_name);
-                File::create(cache_path)?.write_all(&image.data[..])?;
-                return Ok(image);
-            }
+        if let Some(path) = cache_paths.find(|p| p.exists()) {
+            Image::load(path)
+        } else if let Some(path) = images_paths.find(|p| p.exists()) {
+            let raw = image::open(&path)?;
+            let image = process(raw)?;
+            let output_name = format!("{}.{}", name, image.format.ext());
+            let cache_path = cache.join(output_name);
+            fs::write(cache_path, &image.data[..])?;
+            Ok(image)
+        } else {
+            Err(ImageError::NoImage)
         }
-
-        Err(ImageError::NoImage)
     }
 
     /// Get the image data.
@@ -119,35 +158,19 @@ impl Image {
         };
         image::load_from_memory_with_format(self.data(), format)
     }
-
-    /// Create an `Image` from PNG data.
-    pub fn from_png(data: Vec<u8>) -> Self {
-        Self {
-            data,
-            format: Format::Png,
-        }
-    }
-
-    /// Create an `Image` from JPEG data.
-    pub fn from_jpeg(data: Vec<u8>) -> Self {
-        Self {
-            data,
-            format: Format::Jpeg,
-        }
-    }
 }
 
 /// An error when loading or transforming an image.
 #[derive(Debug)]
 pub enum ImageError {
     NoImage,
-    Io(io::Error),
+    Io(std::io::Error),
     Image(image::ImageError),
     UnsupportedFormat,
 }
 
-impl From<io::Error> for ImageError {
-    fn from(err: io::Error) -> ImageError {
+impl From<std::io::Error> for ImageError {
+    fn from(err: std::io::Error) -> ImageError {
         ImageError::Io(err)
     }
 }
@@ -158,26 +181,32 @@ impl From<image::ImageError> for ImageError {
     }
 }
 
+macro_rules! encode {
+    ( $enc:ident, $img:expr ) => {{
+        let mut data = Vec::new();
+        $enc::new(&mut data)
+            .encode(
+                $img,
+                $img.width(),
+                $img.height(),
+                <image::Rgb<u8> as image::Pixel>::color_type(),
+            )
+            .map(|()| data)
+    }};
+}
+
 /// Transform an image into a standard format.
+///
+/// The transformed image is 1000x1000 pixels, and may be a PNG or JPEG. The encoding used is
+/// whichever produces a smaller-sized output.
 pub fn transform_image(img: DynamicImage) -> Result<Image, ImageError> {
-    let img = img.resize(1000, 1000, FilterType::Lanczos3).to_rgb();
+    use image::{jpeg::JPEGEncoder, png::PNGEncoder};
+
+    let img = img.resize(1000, 1000, image::FilterType::Lanczos3).to_rgb();
 
     // Try both PNG and JPEG encoding.
-    let mut png_data = Vec::new();
-    PNGEncoder::new(&mut png_data).encode(
-        &img,
-        img.width(),
-        img.height(),
-        <Rgb<u8> as Pixel>::color_type(),
-    )?;
-
-    let mut jpeg_data = Vec::new();
-    JPEGEncoder::new(&mut jpeg_data).encode(
-        &img,
-        img.width(),
-        img.height(),
-        <Rgb<u8> as Pixel>::color_type(),
-    )?;
+    let png_data = encode!(PNGEncoder, &img)?;
+    let jpeg_data = encode!(JPEGEncoder, &img)?;
 
     if png_data.len() <= jpeg_data.len() {
         Ok(Image::from_png(png_data))
@@ -188,20 +217,16 @@ pub fn transform_image(img: DynamicImage) -> Result<Image, ImageError> {
 
 /// Transform an image into a format for car use.
 pub fn transform_image_vw(img: DynamicImage) -> Result<Image, ImageError> {
-    let img = img.resize(300, 300, FilterType::Lanczos3).to_rgb();
-    let mut data = Vec::new();
-    JPEGEncoder::new(&mut data).encode(
-        &img,
-        img.width(),
-        img.height(),
-        <Rgb<u8> as Pixel>::color_type(),
-    )?;
+    use image::jpeg::JPEGEncoder;
+
+    let img = img.resize(300, 300, image::FilterType::Lanczos3).to_rgb();
+    let data = encode!(JPEGEncoder, &img)?;
     Ok(Image::from_jpeg(data))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{transform_image, transform_image_vw, Image, ImageError};
+    use super::{transform_image, transform_image_vw, Image};
     use image::{self, DynamicImage, GenericImageView};
     use std::{
         fs::{self, File},

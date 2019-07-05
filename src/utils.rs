@@ -1,8 +1,16 @@
 use crate::text::Text;
-use itertools::Itertools;
 use std::cmp::max;
 use yaml_rust::yaml::{Hash, Yaml};
 
+/// Get the number of base 10 digits in a number.
+///
+/// # Examples
+///
+/// ```rust
+/// # use songmaster_rs::utils::num_digits;
+/// assert_eq!(2, num_digits(12));
+/// assert_eq!(3, num_digits(900));
+/// ```
 pub fn num_digits(mut number: usize) -> usize {
     let mut count = 0;
     while number != 0 {
@@ -12,8 +20,25 @@ pub fn num_digits(mut number: usize) -> usize {
     max(count, 1)
 }
 
+/// Creates a text that is the given list of text separated by commas.
+///
+/// # Examples
+///
+/// ```rust
+/// # use songmaster_rs::{text::Text, utils::comma_separated};
+/// let text = [Text::new("foo"), Text::with_ascii("bar", "baar"), Text::new("baz")];
+/// assert_eq!(Text::with_ascii("foo, bar, baz", "foo, baar, baz"), comma_separated(&text[..]));
+/// ```
 pub fn comma_separated(text: &[Text]) -> Text {
-    text.iter().cloned().intersperse(Text::new(", ")).sum()
+    let mut res = Text::new("");
+    let sep = Text::new(", ");
+    for (i, t) in text.iter().enumerate() {
+        if i != 0 {
+            res += &sep;
+        }
+        res += t;
+    }
+    res
 }
 
 pub enum HashDeErr {

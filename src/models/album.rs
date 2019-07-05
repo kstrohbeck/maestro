@@ -1,7 +1,7 @@
 use crate::{
     image::{transform_image, transform_image_vw, Image, ImageError},
-    models::disc::{Disc, DiscInContext},
-    text::Text,
+    models::disc::{self, Disc, DiscInContext},
+    text::{self, Text},
     utils::comma_separated,
 };
 use std::path::{Path, PathBuf};
@@ -31,34 +31,44 @@ impl Album {
         }
     }
 
-    pub fn from_yaml_and_path(yaml: Yaml, path: PathBuf) -> Option<Album> {
-        let mut hash = yaml.into_hash()?;
+    pub fn from_yaml_and_path(yaml: Yaml, path: PathBuf) -> Result<Album, FromYamlError> {
+        let mut hash = yaml.into_hash().ok_or(FromYamlError::NotHash)?;
 
-        let title = pop!(hash["title"]).and_then(Text::from_yaml)?;
+        let title = {
+            let yaml = pop!(hash["title"]).ok_or(FromYamlError::MissingTitle)?;
+            Text::from_yaml(yaml).map_err(FromYamlError::InvalidTitle)?
+        };
 
         // TODO: Abstract this plural/singular pattern into a util.
         let artists = match pop!(hash["artists"]) {
             Some(artists) => artists
-                .into_vec()?
+                .into_vec()
+                .ok_or(FromYamlError::InvalidArtists)?
                 .into_iter()
                 .map(Text::from_yaml)
-                .collect::<Option<Vec<_>>>(),
-            None => pop!(hash["artist"])
-                .and_then(Text::from_yaml)
-                .map(|t| vec![t]),
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(FromYamlError::InvalidArtist),
+            None => {
+                let yaml = pop!(hash["artist"]).ok_or(FromYamlError::MissingArtists)?;
+                Text::from_yaml(yaml)
+                    .map_err(FromYamlError::InvalidArtist)
+                    .map(|v| vec![v])
+            }
         }?;
 
         let discs = match pop!(hash["discs"]) {
-            Some(discs) => Some(
-                discs
-                    .into_vec()?
-                    .into_iter()
-                    .map(Disc::from_yaml)
-                    .collect::<Option<Vec<_>>>()?,
-            ),
+            Some(discs) => Ok(discs
+                .into_vec()
+                .ok_or(FromYamlError::InvalidDiscs)?
+                .into_iter()
+                .map(Disc::from_yaml)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(FromYamlError::InvalidDisc)?),
             None => match pop!(hash["tracks"]) {
-                Some(tracks) => Some(vec![Disc::from_yaml(tracks)?]),
-                None => None,
+                Some(tracks) => Ok(vec![
+                    Disc::from_yaml(tracks).map_err(FromYamlError::InvalidDisc)?
+                ]),
+                None => Err(FromYamlError::MissingDiscOrTracks),
             },
         }?;
 
@@ -66,9 +76,12 @@ impl Album {
             .and_then(Yaml::into_i64)
             .map(|y| y as usize);
 
-        let genre = pop!(hash["genre"]).and_then(Text::from_yaml);
+        let genre = pop!(hash["genre"])
+            .map(Text::from_yaml)
+            .transpose()
+            .map_err(FromYamlError::InvalidGenre)?;
 
-        Some(Album {
+        Ok(Album {
             title,
             artists,
             year,
@@ -206,6 +219,21 @@ impl Album {
             transform_image_vw,
         )
     }
+}
+
+#[derive(Clone, Debug)]
+pub enum FromYamlError {
+    NotHash,
+    MissingTitle,
+    InvalidTitle(text::FromYamlError),
+    MissingArtists,
+    InvalidArtists,
+    InvalidArtist(text::FromYamlError),
+    InvalidDiscs,
+    InvalidDisc(disc::FromYamlError),
+    MissingDiscOrTracks,
+    InvalidYear,
+    InvalidGenre(text::FromYamlError),
 }
 
 #[cfg(test)]

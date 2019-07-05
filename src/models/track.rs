@@ -1,7 +1,7 @@
 use crate::{
     image::{transform_image, transform_image_vw, Image, ImageError},
     models::{album::Album, disc::DiscInContext},
-    text::Text,
+    text::{self, Text},
     utils::{comma_separated, num_digits},
 };
 use id3::{frame::Content, Frame, Tag, Version};
@@ -33,35 +33,54 @@ impl Track {
         }
     }
 
-    pub fn from_yaml(yaml: Yaml) -> Option<Self> {
-        // TODO: Return Result.
+    pub fn from_yaml(yaml: Yaml) -> Result<Self, FromYamlError> {
         match yaml {
-            Yaml::String(title) => Some(Track::new(title)),
+            Yaml::String(title) => Ok(Track::new(title)),
             Yaml::Hash(mut hash) => {
-                let title = pop!(hash["title"]).and_then(Text::from_yaml)?;
+                let title = {
+                    let yaml = pop!(hash["title"]).ok_or(FromYamlError::MissingTitle)?;
+                    Text::from_yaml(yaml).map_err(FromYamlError::InvalidTitle)?
+                };
 
                 let artists = match pop!(hash["artists"]) {
                     Some(artists) => Some(
                         artists
-                            .into_vec()?
+                            .into_vec()
+                            .ok_or(FromYamlError::InvalidArtists)?
                             .into_iter()
                             .map(Text::from_yaml)
-                            .collect::<Option<Vec<_>>>()?,
+                            .collect::<Result<Vec<_>, _>>()
+                            .map_err(FromYamlError::InvalidArtist)?,
                     ),
                     None => match pop!(hash["artist"]) {
-                        Some(artist) => Some(vec![Text::from_yaml(artist)?]),
+                        Some(artist) => Some(vec![
+                            Text::from_yaml(artist).map_err(FromYamlError::InvalidArtist)?
+                        ]),
                         None => None,
                     },
                 };
 
                 let year = pop!(hash["year"])
-                    .and_then(Yaml::into_i64)
-                    .map(|y| y as usize);
-                let genre = pop!(hash["genre"]).and_then(Text::from_yaml);
-                let comment = pop!(hash["comment"]).and_then(Text::from_yaml);
-                let lyrics = pop!(hash["lyrics"]).and_then(Text::from_yaml);
+                    .map(|y| y.into_i64().map(|x| x as usize).ok_or(()))
+                    .transpose()
+                    .map_err(|_| FromYamlError::InvalidYear)?;
 
-                Some(Track {
+                let genre = pop!(hash["genre"])
+                    .map(Text::from_yaml)
+                    .transpose()
+                    .map_err(FromYamlError::InvalidGenre)?;
+
+                let comment = pop!(hash["comment"])
+                    .map(Text::from_yaml)
+                    .transpose()
+                    .map_err(FromYamlError::InvalidComment)?;
+
+                let lyrics = pop!(hash["lyrics"])
+                    .map(Text::from_yaml)
+                    .transpose()
+                    .map_err(FromYamlError::InvalidLyrics)?;
+
+                Ok(Track {
                     title,
                     artists,
                     year,
@@ -70,7 +89,7 @@ impl Track {
                     lyrics,
                 })
             }
-            _ => None,
+            _ => Err(FromYamlError::InvalidTrack),
         }
     }
 
@@ -123,6 +142,19 @@ impl Track {
     {
         self.lyrics = Some(lyrics.into())
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FromYamlError {
+    MissingTitle,
+    InvalidTitle(text::FromYamlError),
+    InvalidArtists,
+    InvalidArtist(text::FromYamlError),
+    InvalidYear,
+    InvalidGenre(text::FromYamlError),
+    InvalidComment(text::FromYamlError),
+    InvalidLyrics(text::FromYamlError),
+    InvalidTrack,
 }
 
 pub struct TrackInContext<'a> {
@@ -274,7 +306,7 @@ impl<'a> TrackInContext<'a> {
         // TODO: Return result.
         if let Ok(Image { data, format }) = self.cover() {
             let cover = id3::frame::Picture {
-                mime_type: format.as_mime().to_string(),
+                mime_type: format.mime().to_string(),
                 picture_type: id3::frame::PictureType::CoverFront,
                 description: "".to_string(),
                 data,
@@ -303,7 +335,7 @@ impl<'a> TrackInContext<'a> {
         // TODO: Return result.
         if let Ok(Image { data, format }) = self.cover_vw() {
             let cover = id3::frame::Picture {
-                mime_type: format.as_mime().to_string(),
+                mime_type: format.mime().to_string(),
                 picture_type: id3::frame::PictureType::CoverFront,
                 description: "".to_string(),
                 data,
@@ -391,7 +423,7 @@ mod tests {
                 - bar
             "
         );
-        assert_eq!(track, None);
+        assert!(track.is_err());
     }
 
     #[test]
@@ -437,7 +469,7 @@ mod tests {
             artists: bar
             "
         );
-        assert_eq!(track, None);
+        assert!(track.is_err());
     }
 
     #[test]

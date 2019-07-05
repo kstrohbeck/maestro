@@ -1,7 +1,7 @@
 use crate::{
     models::{
         album::Album,
-        track::{Track, TrackInContext},
+        track::{self, Track, TrackInContext},
     },
     utils::num_digits,
 };
@@ -22,13 +22,15 @@ impl Disc {
         Disc { tracks }
     }
 
-    pub fn from_yaml(yaml: Yaml) -> Option<Disc> {
+    pub fn from_yaml(yaml: Yaml) -> Result<Disc, FromYamlError> {
         let tracks = yaml
-            .into_vec()?
+            .into_vec()
+            .ok_or(FromYamlError::InvalidTracks)?
             .into_iter()
             .map(Track::from_yaml)
-            .collect::<Option<Vec<_>>>()?;
-        Some(Disc::from_tracks(tracks))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(FromYamlError::InvalidTrack)?;
+        Ok(Disc::from_tracks(tracks))
     }
 
     pub fn num_tracks(&self) -> usize {
@@ -43,6 +45,12 @@ impl Disc {
         self.tracks.push(track);
         self
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum FromYamlError {
+    InvalidTracks,
+    InvalidTrack(track::FromYamlError),
 }
 
 pub struct DiscInContext<'a> {

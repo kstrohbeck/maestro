@@ -7,7 +7,6 @@ edition = "2018"
 [dependencies]
 id3 = "0.2"
 image = "0.21"
-itertools = "0.8"
 lazy_static = "1.2"
 regex = "1.1"
 yaml-rust = "0.4"

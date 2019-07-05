@@ -1,8 +1,16 @@
+//! Functions for handling text that can have both full, ASCII, and file-safe representations.
+
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::{borrow::Cow, iter::Sum, ops::Add};
+use std::{
+    borrow::Cow,
+    fmt::{self, Display},
+    iter::Sum,
+    ops::{Add, AddAssign},
+};
 use yaml_rust::Yaml;
 
+/// A piece of text with an overridable ASCII representation.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Text {
     text: String,
@@ -10,6 +18,7 @@ pub struct Text {
 }
 
 impl Text {
+    /// Create a new `Text`.
     pub fn new<T>(text: T) -> Text
     where
         T: Into<String>,
@@ -20,6 +29,7 @@ impl Text {
         }
     }
 
+    /// Create a new `Text` with overridden ASCII.
     pub fn with_ascii<T, U>(text: T, ascii: U) -> Text
     where
         T: Into<String>,
@@ -31,19 +41,35 @@ impl Text {
         }
     }
 
-    pub fn from_yaml(yaml: Yaml) -> Option<Text> {
-        // TODO: Return Result instead.
+    /// Load `Text` from a Yaml source.
+    ///
+    /// # Examples
+    ///
+    /// Loading a simple string:
+    ///
+    /// ```rust
+    /// # use yaml_rust::YamlLoader;
+    /// let yaml = YamlLoader::load_from_str("\"foo\"")?[0];
+    /// assert_eq!(Text::new("foo"), Text::from_yaml(yaml)?);
+    /// # Ok::<(), std::error::Error>(())
+    /// ```
+    pub fn from_yaml(yaml: Yaml) -> Result<Text, FromYamlError> {
         match yaml {
-            Yaml::String(text) => Some(Text::new(text)),
-            Yaml::Hash(mut hash) => Some({
-                let text = pop!(hash["text"] as String)?;
+            Yaml::String(text) => Ok(Text::new(text)),
+            Yaml::Hash(mut hash) => Ok({
+                let text = pop!(hash["text"])
+                    .ok_or(FromYamlError::MissingTextKey)?
+                    .into_string()
+                    .ok_or(FromYamlError::InvalidText)?;
 
-                match pop!(hash["ascii"] as String) {
-                    Some(ascii) => Text::with_ascii(text, ascii),
-                    None => Text::new(text),
-                }
+                let ascii = pop!(hash["ascii"])
+                    .map(|y| y.into_string().ok_or(()))
+                    .transpose()
+                    .map_err(|_| FromYamlError::InvalidAscii)?;
+
+                Text { text, ascii }
             }),
-            _ => None,
+            _ => Err(FromYamlError::NotStringOrHash),
         }
     }
 
@@ -106,6 +132,20 @@ impl Text {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FromYamlError {
+    MissingTextKey,
+    InvalidText,
+    InvalidAscii,
+    NotStringOrHash,
+}
+
+impl Display for FromYamlError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "invalid yaml")
+    }
+}
+
 impl<'a> From<&'a str> for Text {
     fn from(text: &'a str) -> Text {
         Text::new(text)
@@ -118,10 +158,11 @@ impl From<String> for Text {
     }
 }
 
-impl Add<Text> for Text {
+impl Add for Text {
     type Output = Text;
 
-    fn add(self, other: Text) -> Self::Output {
+    fn add(self, other: Self) -> Self::Output {
+        #[allow(clippy::suspicious_arithmetic_impl)]
         let ascii = if self.ascii.is_none() && other.ascii.is_none() {
             None
         } else {
@@ -131,6 +172,18 @@ impl Add<Text> for Text {
         let text = self.text + &other.text;
 
         Text { text, ascii }
+    }
+}
+
+impl AddAssign<&Text> for Text {
+    fn add_assign(&mut self, other: &Self) {
+        if let Some(ref mut ascii) = &mut self.ascii {
+            ascii.push_str(&other.ascii());
+        } else if let Some(ref ascii) = &other.ascii {
+            self.ascii = Some(self.ascii().into_owned() + ascii);
+        }
+
+        self.text.push_str(&other.text);
     }
 }
 
@@ -337,6 +390,27 @@ mod tests {
     fn texts_add_asciis_together() {
         let (a, b) = (Text::new("hello"), Text::with_ascii("world", "universe"));
         assert_eq!(a + b, Text::with_ascii("helloworld", "hellouniverse"));
+    }
+
+    #[test]
+    fn text_adds_text_to_itself() {
+        let mut a = Text::new("hello");
+        a += &Text::new("world");
+        assert_eq!(a, Text::new("helloworld"));
+    }
+
+    #[test]
+    fn text_adds_ascii_to_itself() {
+        let mut a = Text::new("hello");
+        a += &Text::with_ascii("world", "universe");
+        assert_eq!(a, Text::with_ascii("helloworld", "hellouniverse"));
+    }
+
+    #[test]
+    fn text_adds_to_existing_ascii() {
+        let mut a = Text::with_ascii("hello", "goodbye");
+        a += &Text::with_ascii("world", "universe");
+        assert_eq!(a, Text::with_ascii("helloworld", "goodbyeuniverse"));
     }
 
     #[test]

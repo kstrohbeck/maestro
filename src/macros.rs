@@ -1,3 +1,6 @@
+//! Helper macros.
+
+/// Pop a value from a Yaml hash if it exists.
 #[macro_export]
 macro_rules! pop {
     ($hash:ident[$key:expr]) => {
