@@ -256,4 +256,32 @@ mod tests {
         let artist = album.artist();
         assert_eq!(artist, Text::with_ascii("a, b", "a, c"));
     }
+
+    macro_rules! yaml_to_album {
+        ($s:expr, $path:expr ) => {
+            Album::from_yaml_and_path(
+                yaml_rust::YamlLoader::load_from_str($s)
+                    .unwrap()
+                    .pop()
+                    .unwrap(),
+                $path,
+            )
+        };
+    }
+
+    #[test]
+    fn from_yaml_parses_title() {
+        let album = yaml_to_album!(
+            "
+            title: foo
+            artist: bar
+            tracks:
+                - a
+                - b
+            ",
+            PathBuf::from("album")
+        )
+        .unwrap();
+        assert_eq!(&Text::new("foo"), album.title());
+    }
 }

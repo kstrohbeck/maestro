@@ -8,6 +8,7 @@ use id3::{frame::Content, Frame, Tag, Version};
 use std::path::PathBuf;
 use yaml_rust::Yaml;
 
+/// A music track in an album.
 #[derive(Debug, PartialEq)]
 pub struct Track {
     title: Text,
@@ -61,9 +62,12 @@ impl Track {
                 };
 
                 let year = pop!(hash["year"])
-                    .map(|y| y.into_i64().map(|x| x as usize).ok_or(()))
-                    .transpose()
-                    .map_err(|_| FromYamlError::InvalidYear)?;
+                    .map(|y| {
+                        y.into_i64()
+                            .map(|x| x as usize)
+                            .ok_or(FromYamlError::InvalidYear)
+                    })
+                    .transpose()?;
 
                 let genre = pop!(hash["genre"])
                     .map(Text::from_yaml)

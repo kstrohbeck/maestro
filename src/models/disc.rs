@@ -108,7 +108,9 @@ impl<'a> DiscInContext<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::text::Text;
     use std::path::PathBuf;
+    use yaml_rust::YamlLoader;
 
     #[test]
     fn only_disc_has_empty_filename() {
@@ -142,5 +144,40 @@ mod tests {
         album.push_disc(Disc::new());
         let disc = album.disc(1);
         assert_eq!(disc.path(), album.path());
+    }
+
+    macro_rules! yaml_to_disc {
+        ($s:expr) => {
+            Disc::from_yaml(YamlLoader::load_from_str($s).unwrap().pop().unwrap())
+        };
+    }
+
+    #[test]
+    fn from_yaml_has_tracks() {
+        let disc = yaml_to_disc!(
+            "
+            - foo
+            - title:
+                text: bar
+                ascii: baz
+            - title: quux
+              artists:
+                - a
+                - b
+            "
+        )
+        .unwrap();
+        let tracks = vec![
+            Track::new("foo"),
+            Track::new(Text::with_ascii("bar", "baz")),
+            {
+                let mut track = Track::new("quux");
+                track.push_artist("a");
+                track.push_artist("b");
+                track
+            },
+        ];
+
+        assert_eq!(tracks, disc.tracks);
     }
 }

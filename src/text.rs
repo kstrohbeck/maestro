@@ -2,12 +2,7 @@
 
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::{
-    borrow::Cow,
-    fmt::{self, Display},
-    iter::Sum,
-    ops::{Add, AddAssign},
-};
+use std::{borrow::Cow, fmt};
 use yaml_rust::Yaml;
 
 /// A piece of text with an overridable ASCII representation.
@@ -19,6 +14,15 @@ pub struct Text {
 
 impl Text {
     /// Create a new `Text`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use songmaster_rs::text::Text;
+    /// let text = Text::new("foo");
+    /// assert_eq!("foo", text.text());
+    /// assert_eq!("foo", text.ascii());
+    /// ```
     pub fn new<T>(text: T) -> Text
     where
         T: Into<String>,
@@ -30,6 +34,15 @@ impl Text {
     }
 
     /// Create a new `Text` with overridden ASCII.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use songmaster_rs::text::Text;
+    /// let text = Text::with_ascii("foo", "bar");
+    /// assert_eq!("foo", text.text());
+    /// assert_eq!("bar", text.ascii());
+    /// ```
     pub fn with_ascii<T, U>(text: T, ascii: U) -> Text
     where
         T: Into<String>,
@@ -41,17 +54,39 @@ impl Text {
         }
     }
 
-    /// Load `Text` from a Yaml source.
+    /// Parse `Text` from a Yaml source.
+    ///
+    /// A `Text` may be loaded from one of two kinds of YAML objects. If the YAML is a string, that
+    /// string is used as the text, and ASCII is not overridden. If the YAML is a hash, then a
+    /// "text" key is expected with a string value, and an "ascii" key is allowed with a string
+    /// value that overrides the `Text`'s ASCII value.
     ///
     /// # Examples
     ///
     /// Loading a simple string:
     ///
     /// ```rust
-    /// # use yaml_rust::YamlLoader;
-    /// let yaml = YamlLoader::load_from_str("\"foo\"")?[0];
-    /// assert_eq!(Text::new("foo"), Text::from_yaml(yaml)?);
-    /// # Ok::<(), std::error::Error>(())
+    /// # use songmaster_rs::text::Text;
+    /// use yaml_rust::YamlLoader;
+    ///
+    /// let yaml = YamlLoader::load_from_str("\"foo\"")?.remove(0);
+    /// assert_eq!(Ok(Text::new("foo")), Text::from_yaml(yaml));
+    /// # Ok::<(), yaml_rust::ScanError>(())
+    /// ```
+    ///
+    /// Loading a string with overridden ASCII:
+    ///
+    /// ```rust
+    /// # use songmaster_rs::text::Text;
+    /// use yaml_rust::YamlLoader;
+    ///
+    /// let yaml = YamlLoader::load_from_str("
+    /// text: foo
+    /// ascii: bar
+    /// ")?
+    /// .remove(0);
+    /// assert_eq!(Ok(Text::with_ascii("foo", "bar")), Text::from_yaml(yaml));
+    /// # Ok::<(), yaml_rust::ScanError>(())
     /// ```
     pub fn from_yaml(yaml: Yaml) -> Result<Text, FromYamlError> {
         match yaml {
@@ -63,9 +98,8 @@ impl Text {
                     .ok_or(FromYamlError::InvalidText)?;
 
                 let ascii = pop!(hash["ascii"])
-                    .map(|y| y.into_string().ok_or(()))
-                    .transpose()
-                    .map_err(|_| FromYamlError::InvalidAscii)?;
+                    .map(|y| y.into_string().ok_or(FromYamlError::InvalidAscii))
+                    .transpose()?;
 
                 Text { text, ascii }
             }),
@@ -73,10 +107,15 @@ impl Text {
         }
     }
 
+    /// Get the text value of a `Text`.
     pub fn text(&self) -> &str {
         &self.text
     }
 
+    /// Get the ascii value of a `Text`.
+    ///
+    /// If the ascii has been overridden, this returns that value. Otherwise, it returns the text
+    /// with any non-ASCII characters replaced with '?'.
     pub fn ascii(&self) -> Cow<str> {
         match &self.ascii {
             Some(asc) => asc.into(),
@@ -94,6 +133,19 @@ impl Text {
         }
     }
 
+    /// Get a version of the `Text` safe to use in filenames.
+    ///
+    /// The file safe name is the ASCII content of the `Text`, minus characters that aren't usable
+    /// in one or more operating system filenames. These characters are replaced with file safe
+    /// variants.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use songmaster_rs::text::Text;
+    /// let text = Text::new("foo: <bar>?");
+    /// assert_eq!("foo - [bar]", text.file_safe());
+    /// ```
     pub fn file_safe(&self) -> Cow<str> {
         let ascii = self.ascii();
         if !ascii.contains(&['<', '>', ':', '"', '/', '|', '~', '\\', '*', '?'][..]) {
@@ -115,6 +167,18 @@ impl Text {
         buf.into()
     }
 
+    /// Get a version of the `Text` safe to use in filenames that can be alphabetically sorted.
+    ///
+    /// This is the same as the results of `file_safe`, except that it allows the text to be
+    /// sorted alphabetically - articles at the beginning of the text are moved to the end.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use songmaster_rs::text::Text;
+    /// let text = Text::new("The Title of Something");
+    /// assert_eq!("Title of Something, The", text.sortable_file_safe());
+    /// ```
     pub fn sortable_file_safe(&self) -> Cow<str> {
         lazy_static! {
             static ref RE: Regex =
@@ -132,19 +196,29 @@ impl Text {
     }
 }
 
+/// An error when parsing a `Text` from YAML.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FromYamlError {
+    /// The hash is missing the "text" key.
     MissingTextKey,
+
+    /// The hash's "text" value is not a string.
     InvalidText,
+
+    /// The hash's "ascii" value is not a string.
     InvalidAscii,
+
+    /// The text object is not a string or a hash.
     NotStringOrHash,
 }
 
-impl Display for FromYamlError {
+impl fmt::Display for FromYamlError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "invalid yaml")
     }
 }
+
+impl std::error::Error for FromYamlError {}
 
 impl<'a> From<&'a str> for Text {
     fn from(text: &'a str) -> Text {
@@ -158,7 +232,7 @@ impl From<String> for Text {
     }
 }
 
-impl Add for Text {
+impl std::ops::Add for Text {
     type Output = Text;
 
     fn add(self, other: Self) -> Self::Output {
@@ -175,7 +249,7 @@ impl Add for Text {
     }
 }
 
-impl AddAssign<&Text> for Text {
+impl std::ops::AddAssign<&Text> for Text {
     fn add_assign(&mut self, other: &Self) {
         if let Some(ref mut ascii) = &mut self.ascii {
             ascii.push_str(&other.ascii());
@@ -187,7 +261,7 @@ impl AddAssign<&Text> for Text {
     }
 }
 
-impl Sum for Text {
+impl std::iter::Sum for Text {
     fn sum<I>(iter: I) -> Self
     where
         I: Iterator<Item = Self>,
