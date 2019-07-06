@@ -2,7 +2,11 @@
 
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::{borrow::Cow, fmt};
+use std::{
+    borrow::Cow,
+    fmt,
+    ops::{Add, AddAssign},
+};
 use yaml_rust::Yaml;
 
 /// A piece of text with an overridable ASCII representation.
@@ -92,18 +96,25 @@ impl Text {
         match yaml {
             Yaml::String(text) => Ok(Text::new(text)),
             Yaml::Hash(mut hash) => Ok({
-                let text = pop!(hash["text"])
-                    .ok_or(FromYamlError::MissingTextKey)?
-                    .into_string()
-                    .ok_or(FromYamlError::InvalidText)?;
+                fn yaml_to_string<E, F: Fn(Yaml) -> E>(yaml: Yaml, err: F) -> Result<String, E> {
+                    match yaml {
+                        Yaml::String(s) => Ok(s),
+                        yaml => Err(err(yaml)),
+                    }
+                }
+
+                let text = yaml_to_string(
+                    pop!(hash["text"]).ok_or(FromYamlError::MissingTextKey)?,
+                    FromYamlError::InvalidText,
+                )?;
 
                 let ascii = pop!(hash["ascii"])
-                    .map(|y| y.into_string().ok_or(FromYamlError::InvalidAscii))
+                    .map(|y| yaml_to_string(y, FromYamlError::InvalidAscii))
                     .transpose()?;
 
                 Text { text, ascii }
             }),
-            _ => Err(FromYamlError::NotStringOrHash),
+            yaml => Err(FromYamlError::NotStringOrHash(yaml)),
         }
     }
 
@@ -117,20 +128,19 @@ impl Text {
     /// If the ascii has been overridden, this returns that value. Otherwise, it returns the text
     /// with any non-ASCII characters replaced with '?'.
     pub fn ascii(&self) -> Cow<str> {
-        match &self.ascii {
-            Some(asc) => asc.into(),
-            None => {
-                let text = self.text();
-                if text.is_ascii() {
-                    text.into()
-                } else {
-                    text.chars()
-                        .map(|c| if c.is_ascii() { c } else { '?' })
-                        .collect::<String>()
-                        .into()
-                }
-            }
+        if let Some(asc) = &self.ascii {
+            return asc.into();
         }
+
+        let text = self.text();
+        if text.is_ascii() {
+            return text.into();
+        }
+
+        text.chars()
+            .map(|c| if c.is_ascii() { c } else { '?' })
+            .collect::<String>()
+            .into()
     }
 
     /// Get a version of the `Text` safe to use in filenames.
@@ -197,24 +207,29 @@ impl Text {
 }
 
 /// An error when parsing a `Text` from YAML.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FromYamlError {
     /// The hash is missing the "text" key.
     MissingTextKey,
 
     /// The hash's "text" value is not a string.
-    InvalidText,
+    InvalidText(Yaml),
 
     /// The hash's "ascii" value is not a string.
-    InvalidAscii,
+    InvalidAscii(Yaml),
 
     /// The text object is not a string or a hash.
-    NotStringOrHash,
+    NotStringOrHash(Yaml),
 }
 
 impl fmt::Display for FromYamlError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "invalid yaml")
+        match self {
+            FromYamlError::MissingTextKey => write!(f, "missing \"text\" key"),
+            FromYamlError::InvalidText(_) => write!(f, "invalid \"text\" value"),
+            FromYamlError::InvalidAscii(_) => write!(f, "invalid \"ascii\" value"),
+            FromYamlError::NotStringOrHash(_) => write!(f, "text must be string or hash"),
+        }
     }
 }
 
@@ -232,10 +247,18 @@ impl From<String> for Text {
     }
 }
 
-impl std::ops::Add for Text {
+impl Add for Text {
     type Output = Text;
 
     fn add(self, other: Self) -> Self::Output {
+        <Self as Add<&Text>>::add(self, &other)
+    }
+}
+
+impl Add<&Text> for Text {
+    type Output = Text;
+
+    fn add(self, other: &Self) -> Self::Output {
         #[allow(clippy::suspicious_arithmetic_impl)]
         let ascii = if self.ascii.is_none() && other.ascii.is_none() {
             None
@@ -249,7 +272,13 @@ impl std::ops::Add for Text {
     }
 }
 
-impl std::ops::AddAssign<&Text> for Text {
+impl AddAssign for Text {
+    fn add_assign(&mut self, other: Self) {
+        <Self as AddAssign<&Text>>::add_assign(self, &other);
+    }
+}
+
+impl AddAssign<&Text> for Text {
     fn add_assign(&mut self, other: &Self) {
         if let Some(ref mut ascii) = &mut self.ascii {
             ascii.push_str(&other.ascii());
@@ -273,6 +302,7 @@ impl std::iter::Sum for Text {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use matches::assert_matches;
     use yaml_rust::YamlLoader;
 
     fn is_borrowed(cow: Cow<str>) -> bool {
@@ -317,6 +347,43 @@ mod tests {
     }
 
     #[test]
+    fn yaml_non_string_or_hash_doesnt_parse() {
+        let yaml = YamlLoader::load_from_str("123").unwrap().pop().unwrap();
+        let text = Text::from_yaml(yaml);
+        assert_matches!(text, Err(FromYamlError::NotStringOrHash(_)));
+    }
+
+    #[test]
+    fn yaml_hash_without_text_doesnt_parse() {
+        let yaml = YamlLoader::load_from_str("ascii: bar")
+            .unwrap()
+            .pop()
+            .unwrap();
+        let text = Text::from_yaml(yaml);
+        assert_eq!(text, Err(FromYamlError::MissingTextKey));
+    }
+
+    #[test]
+    fn yaml_hash_with_bad_text_doesnt_parse() {
+        let yaml = YamlLoader::load_from_str("text: 123")
+            .unwrap()
+            .pop()
+            .unwrap();
+        let text = Text::from_yaml(yaml);
+        assert_matches!(text, Err(FromYamlError::InvalidText(_)));
+    }
+
+    #[test]
+    fn yaml_hash_with_bad_ascii_doesnt_parse() {
+        let yaml = YamlLoader::load_from_str("text: foo\nascii: 123")
+            .unwrap()
+            .pop()
+            .unwrap();
+        let text = Text::from_yaml(yaml);
+        assert_matches!(text, Err(FromYamlError::InvalidAscii(_)));
+    }
+
+    #[test]
     fn ascii_is_same_as_text() {
         let text = Text::new("hello");
         assert_eq!(text.ascii(), "hello");
@@ -337,19 +404,19 @@ mod tests {
     #[test]
     fn ascii_is_borrowed_text() {
         let text = Text::new("hello");
-        assert!(is_borrowed(text.ascii()));
+        assert_matches!(text.ascii(), Cow::Borrowed(_));
     }
 
     #[test]
     fn ascii_is_borrowed_if_overridden() {
         let text = Text::with_ascii("hello", "goodbye");
-        assert!(is_borrowed(text.ascii()));
+        assert_matches!(text.ascii(), Cow::Borrowed(_));
     }
 
     #[test]
     fn ascii_is_owned_for_nonascii_text() {
         let text = Text::new("fire = 🔥");
-        assert!(is_owned(text.ascii()));
+        assert_matches!(text.ascii(), Cow::Owned(_));
     }
 
     #[test]
@@ -367,31 +434,31 @@ mod tests {
     #[test]
     fn file_safe_is_borrowed_if_text_is_safe() {
         let text = Text::new("foo");
-        assert!(is_borrowed(text.file_safe()));
+        assert_matches!(text.file_safe(), Cow::Borrowed(_));
     }
 
     #[test]
     fn file_safe_is_owned_if_text_isnt_ascii() {
         let text = Text::new("fire = 🔥");
-        assert!(is_owned(text.file_safe()));
+        assert_matches!(text.file_safe(), Cow::Owned(_));
     }
 
     #[test]
     fn file_safe_is_owned_if_text_isnt_safe() {
         let text = Text::new("foo?");
-        assert!(is_owned(text.file_safe()));
+        assert_matches!(text.file_safe(), Cow::Owned(_));
     }
 
     #[test]
     fn file_safe_is_borrowed_if_overridden_ascii_is_safe() {
         let text = Text::with_ascii("foo", "bar");
-        assert!(is_borrowed(text.file_safe()));
+        assert_matches!(text.file_safe(), Cow::Borrowed(_));
     }
 
     #[test]
     fn file_safe_is_owned_if_overridden_ascii_isnt_safe() {
         let text = Text::with_ascii("foo", "bar?");
-        assert!(is_owned(text.file_safe()));
+        assert_matches!(text.file_safe(), Cow::Owned(_));
     }
 
     #[test]
@@ -415,43 +482,43 @@ mod tests {
     #[test]
     fn sortable_file_safe_is_borrowed_with_unmodified_text() {
         let text = Text::new("foo");
-        assert!(is_borrowed(text.sortable_file_safe()));
+        assert_matches!(text.sortable_file_safe(), Cow::Borrowed(_));
     }
 
     #[test]
     fn sortable_file_safe_is_owned_with_nonascii_text() {
         let text = Text::new("fire = 🔥");
-        assert!(is_owned(text.sortable_file_safe()));
+        assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
     }
 
     #[test]
     fn sortable_file_safe_is_owned_with_non_file_safe_text() {
         let text = Text::new("foo?");
-        assert!(is_owned(text.sortable_file_safe()));
+        assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
     }
 
     #[test]
     fn sortable_file_safe_is_owned_with_modified_text() {
         let text = Text::new("A Song Title");
-        assert!(is_owned(text.sortable_file_safe()));
+        assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
     }
 
     #[test]
     fn sortable_file_safe_is_borrowed_with_unmodified_ascii() {
         let text = Text::with_ascii("foo", "bar");
-        assert!(is_borrowed(text.sortable_file_safe()));
+        assert_matches!(text.sortable_file_safe(), Cow::Borrowed(_));
     }
 
     #[test]
     fn sortable_file_safe_is_owned_with_non_safe_ascii() {
         let text = Text::with_ascii("foo", "bar?");
-        assert!(is_owned(text.sortable_file_safe()));
+        assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
     }
 
     #[test]
     fn sortable_file_safe_is_owned_with_modified_ascii() {
         let text = Text::with_ascii("foo", "the bar");
-        assert!(is_owned(text.sortable_file_safe()));
+        assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
     }
 
     #[test]
