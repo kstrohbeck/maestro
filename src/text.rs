@@ -1,5 +1,6 @@
 //! Functions for handling text that can have both full, ASCII, and file-safe representations.
 
+use crate::utils::{parse_key_from_hash, try_parse_key_from_hash, ParseKeyError};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::{
@@ -96,21 +97,23 @@ impl Text {
         match yaml {
             Yaml::String(text) => Ok(Text::new(text)),
             Yaml::Hash(mut hash) => Ok({
-                fn yaml_to_string<E, F: Fn(Yaml) -> E>(yaml: Yaml, err: F) -> Result<String, E> {
+                fn yaml_to_string(yaml: Yaml) -> Result<String, Yaml> {
                     match yaml {
                         Yaml::String(s) => Ok(s),
-                        yaml => Err(err(yaml)),
+                        yaml => Err(yaml),
                     }
                 }
 
-                let text = yaml_to_string(
-                    pop!(hash["text"]).ok_or(FromYamlError::MissingTextKey)?,
-                    FromYamlError::InvalidText,
-                )?;
+                let text =
+                    parse_key_from_hash(&mut hash, "text", yaml_to_string).map_err(
+                        |e| match e {
+                            ParseKeyError::KeyNotFound => FromYamlError::MissingTextKey,
+                            ParseKeyError::InvalidValue(v) => FromYamlError::InvalidText(v),
+                        },
+                    )?;
 
-                let ascii = pop!(hash["ascii"])
-                    .map(|y| yaml_to_string(y, FromYamlError::InvalidAscii))
-                    .transpose()?;
+                let ascii = try_parse_key_from_hash(&mut hash, "ascii", yaml_to_string)
+                    .map_err(FromYamlError::InvalidAscii)?;
 
                 Text { text, ascii }
             }),
@@ -304,20 +307,6 @@ mod tests {
     use super::*;
     use matches::assert_matches;
     use yaml_rust::YamlLoader;
-
-    fn is_borrowed(cow: Cow<str>) -> bool {
-        match cow {
-            Cow::Borrowed(_) => true,
-            Cow::Owned(_) => false,
-        }
-    }
-
-    fn is_owned(cow: Cow<str>) -> bool {
-        match cow {
-            Cow::Borrowed(_) => false,
-            Cow::Owned(_) => true,
-        }
-    }
 
     #[test]
     fn simple_yaml_parses_text() {
