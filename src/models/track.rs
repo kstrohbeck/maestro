@@ -1,21 +1,41 @@
 use crate::{
-    image::{transform_image, transform_image_vw, Image, ImageError},
+    image::{transform_image, transform_image_vw, Image, LoadWithCacheError},
     models::{album::Album, disc::DiscInContext},
     text::{self, Text},
-    utils::{comma_separated, num_digits},
+    utils::{
+        comma_separated, num_digits, parse_key_from_hash, parse_singular_or_plural,
+        try_parse_key_from_hash, yaml_into_usize, ParseKeyError, ParseSingularOrPluralError,
+    },
 };
 use id3::{frame::Content, Frame, Tag, Version};
-use std::path::PathBuf;
+use once_cell::sync::OnceCell;
+use std::{
+    borrow::Borrow,
+    fmt,
+    fs::{self, OpenOptions},
+    path::{Path, PathBuf},
+};
 use yaml_rust::Yaml;
 
 /// A music track in an album.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Track {
+    /// The title of the track.
     title: Text,
+
+    /// A list of artists that created the track, or None if the album's artists should be used.
     artists: Option<Vec<Text>>,
+
+    /// The year the track was created, or None if the album's year should be used.
     year: Option<usize>,
+
+    /// The genre of the track, or None if the album's genre should be used.
     genre: Option<Text>,
+
+    /// Any comments on the track.
     pub comment: Option<Text>,
+
+    /// The track's lyrics.
     pub lyrics: Option<Text>,
 }
 
@@ -38,50 +58,36 @@ impl Track {
         match yaml {
             Yaml::String(title) => Ok(Track::new(title)),
             Yaml::Hash(mut hash) => {
-                let title = {
-                    let yaml = pop!(hash["title"]).ok_or(FromYamlError::MissingTitle)?;
-                    Text::from_yaml(yaml).map_err(FromYamlError::InvalidTitle)?
-                };
-
-                let artists = match pop!(hash["artists"]) {
-                    Some(artists) => Some(
-                        artists
-                            .into_vec()
-                            .ok_or(FromYamlError::InvalidArtists)?
-                            .into_iter()
-                            .map(Text::from_yaml)
-                            .collect::<Result<Vec<_>, _>>()
-                            .map_err(FromYamlError::InvalidArtist)?,
-                    ),
-                    None => match pop!(hash["artist"]) {
-                        Some(artist) => Some(vec![
-                            Text::from_yaml(artist).map_err(FromYamlError::InvalidArtist)?
-                        ]),
-                        None => None,
+                let title = parse_key_from_hash(&mut hash, "title", Text::from_yaml).map_err(
+                    |e| match e {
+                        ParseKeyError::KeyNotFound => FromYamlError::MissingTitle,
+                        ParseKeyError::InvalidValue(y) => FromYamlError::InvalidTitle(y),
                     },
-                };
+                )?;
 
-                let year = pop!(hash["year"])
-                    .map(|y| {
-                        y.into_i64()
-                            .map(|x| x as usize)
-                            .ok_or(FromYamlError::InvalidYear)
-                    })
-                    .transpose()?;
+                let artists =
+                    match parse_singular_or_plural(&mut hash, "artist", "artists", Text::from_yaml)
+                    {
+                        Ok(artists) => Ok(Some(artists)),
+                        Err(ParseSingularOrPluralError::KeysNotFound) => Ok(None),
+                        Err(ParseSingularOrPluralError::NotAnArray(v)) => {
+                            Err(FromYamlError::InvalidArtists(v))
+                        }
+                        Err(ParseSingularOrPluralError::InvalidValue(v)) => {
+                            Err(FromYamlError::InvalidArtist(v))
+                        }
+                    }?;
 
-                let genre = pop!(hash["genre"])
-                    .map(Text::from_yaml)
-                    .transpose()
+                let year = try_parse_key_from_hash(&mut hash, "year", yaml_into_usize)
+                    .map_err(FromYamlError::InvalidYear)?;
+
+                let genre = try_parse_key_from_hash(&mut hash, "genre", Text::from_yaml)
                     .map_err(FromYamlError::InvalidGenre)?;
 
-                let comment = pop!(hash["comment"])
-                    .map(Text::from_yaml)
-                    .transpose()
+                let comment = try_parse_key_from_hash(&mut hash, "comment", Text::from_yaml)
                     .map_err(FromYamlError::InvalidComment)?;
 
-                let lyrics = pop!(hash["lyrics"])
-                    .map(Text::from_yaml)
-                    .transpose()
+                let lyrics = try_parse_key_from_hash(&mut hash, "lyrics", Text::from_yaml)
                     .map_err(FromYamlError::InvalidLyrics)?;
 
                 Ok(Track {
@@ -93,7 +99,7 @@ impl Track {
                     lyrics,
                 })
             }
-            _ => Err(FromYamlError::InvalidTrack),
+            _ => Err(FromYamlError::InvalidTrack(yaml)),
         }
     }
 
@@ -148,40 +154,79 @@ impl Track {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FromYamlError {
     MissingTitle,
     InvalidTitle(text::FromYamlError),
-    InvalidArtists,
+    InvalidArtists(Yaml),
     InvalidArtist(text::FromYamlError),
-    InvalidYear,
+    InvalidYear(Yaml),
     InvalidGenre(text::FromYamlError),
     InvalidComment(text::FromYamlError),
     InvalidLyrics(text::FromYamlError),
-    InvalidTrack,
+    InvalidTrack(Yaml),
 }
 
-pub struct TrackInContext<'a> {
-    pub disc: &'a DiscInContext<'a>,
+impl fmt::Display for FromYamlError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            FromYamlError::MissingTitle => write!(f, "missing title"),
+            FromYamlError::InvalidTitle(e) => write!(f, "invalid title: {}", e),
+            FromYamlError::InvalidArtists(y) => write!(f, "invalid artists: {:?}", y),
+            FromYamlError::InvalidArtist(e) => write!(f, "invalid artist: {}", e),
+            FromYamlError::InvalidYear(_) => write!(f, "year must be integer"),
+            FromYamlError::InvalidGenre(e) => write!(f, "invalid genre: {}", e),
+            FromYamlError::InvalidComment(e) => write!(f, "invalid comment: {}", e),
+            FromYamlError::InvalidLyrics(e) => write!(f, "invalid lyrics: {}", e),
+            FromYamlError::InvalidTrack(_) => write!(f, "track must be a string or hash"),
+        }
+    }
+}
+
+impl std::error::Error for FromYamlError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            FromYamlError::InvalidTitle(e)
+            | FromYamlError::InvalidArtist(e)
+            | FromYamlError::InvalidGenre(e)
+            | FromYamlError::InvalidComment(e)
+            | FromYamlError::InvalidLyrics(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+pub struct TrackInContext<'a, T>
+where
+    T: Borrow<DiscInContext<'a>>,
+{
+    pub disc: T,
     track: &'a Track,
     pub track_number: usize,
+    cover: OnceCell<Option<Image>>,
+    cover_vw: OnceCell<Option<Image>>,
 }
 
-impl<'a> TrackInContext<'a> {
-    pub fn new(
-        disc: &'a DiscInContext<'a>,
-        track: &'a Track,
-        track_number: usize,
-    ) -> TrackInContext<'a> {
+impl<'a, T> TrackInContext<'a, T>
+where
+    T: Borrow<DiscInContext<'a>>,
+{
+    pub fn new(disc: T, track: &'a Track, track_number: usize) -> TrackInContext<'a, T> {
         TrackInContext {
             disc,
             track,
             track_number,
+            cover: OnceCell::new(),
+            cover_vw: OnceCell::new(),
         }
     }
 
+    fn disc(&self) -> &DiscInContext {
+        self.disc.borrow()
+    }
+
     fn album(&self) -> &Album {
-        self.disc.album
+        self.disc().album
     }
 
     pub fn title(&self) -> &Text {
@@ -191,7 +236,7 @@ impl<'a> TrackInContext<'a> {
     pub fn artists(&self) -> &[Text] {
         self.track
             .artists()
-            .unwrap_or_else(|| self.disc.album.artists())
+            .unwrap_or_else(|| self.album().artists())
     }
 
     pub fn artist(&self) -> Text {
@@ -199,8 +244,10 @@ impl<'a> TrackInContext<'a> {
     }
 
     pub fn album_artists(&self) -> Option<&[Text]> {
-        if self.artists() != self.album().artists() {
-            Some(self.album().artists())
+        let album_artists = self.album().artists();
+
+        if self.artists() != album_artists {
+            Some(album_artists)
         } else {
             None
         }
@@ -227,40 +274,90 @@ impl<'a> TrackInContext<'a> {
     }
 
     pub fn filename(&self) -> String {
-        let digits = num_digits(self.disc.num_tracks());
+        let digits = num_digits(self.disc().num_tracks());
         format!(
             "{:0width$} - {}.mp3",
             self.track_number,
             self.title().file_safe(),
-            width = digits
+            width = digits,
+        )
+    }
+
+    pub fn filename_vw(&self) -> String {
+        if self.album().num_discs() == 1 {
+            return self.filename();
+        }
+        let disc_digits = num_digits(self.album().num_discs());
+        let track_digits = num_digits(self.disc().num_tracks());
+        format!(
+            "{:0disc_width$}-{:0track_width$} - {}.mp3",
+            self.disc().disc_number,
+            self.track_number,
+            self.title().file_safe(),
+            disc_width = disc_digits,
+            track_width = track_digits,
         )
     }
 
     pub fn path(&self) -> PathBuf {
-        self.disc.path().join(self.filename())
+        self.disc().path().join(self.filename())
     }
 
-    pub fn cover(&self) -> Result<Image, ImageError> {
-        Image::load_with_cache(
-            self.album().image_path(),
-            self.album().covers_path(),
-            &self.track.title().file_safe(),
-            transform_image,
-        )
-        .or_else(|_| self.album().cover())
+    pub fn cover(&self) -> Result<Option<&Image>, LoadWithCacheError> {
+        self.cover
+            .get_or_try_init(|| {
+                Image::try_load_with_cache(
+                    self.album().image_path(),
+                    self.album().covers_path(),
+                    &self.track.title().file_safe(),
+                    transform_image,
+                )
+            })
+            // TODO: Are there combinators for this?
+            .and_then(|o| match o {
+                Some(x) => Ok(Some(x)),
+                None => self.album().cover(),
+            })
     }
 
-    pub fn cover_vw(&self) -> Result<Image, ImageError> {
-        Image::load_with_cache(
-            self.album().image_path(),
-            self.album().covers_vw_path(),
-            &self.track.title().file_safe(),
-            transform_image_vw,
-        )
-        .or_else(|_| self.album().cover_vw())
+    pub fn cover_vw(&self) -> Result<Option<&Image>, LoadWithCacheError> {
+        self.cover_vw
+            .get_or_try_init(|| {
+                Image::try_load_with_cache(
+                    self.album().image_path(),
+                    self.album().covers_vw_path(),
+                    &self.track.title().file_safe(),
+                    transform_image_vw,
+                )
+            })
+            // TODO: Are there combinators for this?
+            .and_then(|o| match o {
+                Some(x) => Ok(Some(x)),
+                None => self.album().cover_vw(),
+            })
     }
 
-    pub fn update_id3(&self) {
+    pub fn exists(&self) -> bool {
+        self.path().exists()
+    }
+
+    pub fn update_id3(&self) -> Result<(), UpdateId3Error> {
+        // Check if the file exists before trying to create a tag.
+        let path = self.path();
+        if !path.exists() {
+            return Err(UpdateId3Error::FileNotFound);
+        }
+
+        // Remove the old tag.
+        // TODO: Remove unwraps.
+        // TODO: See if we can avoid doing this.
+        let mut file = OpenOptions::new()
+            .write(true)
+            .read(true)
+            .open(&path)
+            .unwrap();
+        Tag::remove_from(&mut file).unwrap();
+
         let mut tag = Tag::new();
         tag.set_title(self.title().text());
         if !self.artists().is_empty() {
@@ -270,8 +367,8 @@ impl<'a> TrackInContext<'a> {
         if let Some(album_artist) = self.album_artist() {
             tag.set_album_artist(album_artist.text());
         }
-        if !self.disc.is_only_disc() {
-            tag.set_disc(self.disc.disc_number as u32);
+        if !self.disc().is_only_disc() {
+            tag.set_disc(self.disc().disc_number as u32);
         }
         tag.set_album(self.album().title().text());
         if let Some(year) = self.year() {
@@ -307,22 +404,50 @@ impl<'a> TrackInContext<'a> {
             // TODO: As soon as the next version of id3 is released, update this to `add_lyrics`.
             tag.add_frame(Frame::with_content("USLT", Content::Lyrics(lyrics)));
         }
-        // TODO: Return result.
-        if let Ok(Image { data, format }) = self.cover() {
+
+        if let Some(Image {
+            ref data,
+            ref format,
+        }) = self.cover().map_err(UpdateId3Error::CoverError)?
+        {
             let cover = id3::frame::Picture {
                 mime_type: format.mime().to_string(),
                 picture_type: id3::frame::PictureType::CoverFront,
                 description: "".to_string(),
-                data,
+                data: data.clone(),
             };
             tag.add_picture(cover);
         }
 
-        // TODO: Remove unwraps & return Result.
-        tag.write_to_path(self.path(), Version::Id3v24).unwrap();
+        tag.write_to_path(path, Version::Id3v24)
+            .map_err(UpdateId3Error::WriteError)
     }
 
-    pub fn update_id3_vw(&self) {
+    pub fn update_id3_vw<P: AsRef<Path>>(&self, folder: P) -> Result<(), UpdateId3VwError> {
+        let orig_path = self.path();
+        if !orig_path.exists() {
+            return Err(UpdateId3VwError::FileNotFound);
+        }
+
+        let folder = folder.as_ref();
+        if !folder.exists() {
+            return Err(UpdateId3VwError::FolderNotFound);
+        }
+
+        // Copy file to destination.
+        let path = folder.join(self.filename_vw());
+        fs::copy(orig_path, &path).map_err(UpdateId3VwError::CopyError)?;
+
+        // Remove the old tag.
+        // TODO: Remove unwraps.
+        // TODO: See if we can avoid doing this.
+        let mut file = OpenOptions::new()
+            .write(true)
+            .read(true)
+            .open(&path)
+            .unwrap();
+        Tag::remove_from(&mut file).unwrap();
+
         let mut tag = Tag::new();
         tag.set_title(self.title().ascii());
         if !self.artists().is_empty() {
@@ -332,25 +457,42 @@ impl<'a> TrackInContext<'a> {
         if let Some(album_artist) = self.album_artist() {
             tag.set_album_artist(album_artist.ascii());
         }
-        if !self.disc.is_only_disc() {
-            tag.set_disc(self.disc.disc_number as u32);
+        if !self.disc().is_only_disc() {
+            tag.set_disc(self.disc().disc_number as u32);
         }
         tag.set_album(self.album().title().ascii());
-        // TODO: Return result.
-        if let Ok(Image { data, format }) = self.cover_vw() {
+
+        if let Some(Image { data, format }) =
+            self.cover_vw().map_err(UpdateId3VwError::CoverError)?
+        {
             let cover = id3::frame::Picture {
                 mime_type: format.mime().to_string(),
                 picture_type: id3::frame::PictureType::CoverFront,
                 description: "".to_string(),
-                data,
+                data: data.clone(),
             };
             tag.add_picture(cover);
         }
 
-        // TODO: Remove unwraps & return result
-        // TODO: Where do we write to?
-        // tag.write_to_path(self.path(), Version::Id3v24).unwrap();
+        tag.write_to_path(path, Version::Id3v24)
+            .map_err(UpdateId3VwError::WriteError)
     }
+}
+
+#[derive(Debug)]
+pub enum UpdateId3Error {
+    FileNotFound,
+    CoverError(LoadWithCacheError),
+    WriteError(id3::Error),
+}
+
+#[derive(Debug)]
+pub enum UpdateId3VwError {
+    FileNotFound,
+    FolderNotFound,
+    CopyError(std::io::Error),
+    CoverError(LoadWithCacheError),
+    WriteError(id3::Error),
 }
 
 #[cfg(test)]

@@ -8,6 +8,7 @@ edition = "2018"
 id3 = "0.2"
 image = "0.21"
 lazy_static = "1.2"
+once_cell = "0.2.2"
 regex = "1.1"
 yaml-rust = "0.4"
 

@@ -3,6 +3,8 @@
 use image::DynamicImage;
 use std::{
     convert::{TryFrom, TryInto},
+    error::Error,
+    fmt, fs,
     path::Path,
 };
 
@@ -40,16 +42,29 @@ impl Format {
 }
 
 impl TryFrom<image::ImageFormat> for Format {
-    type Error = ImageError;
+    type Error = FormatError;
 
-    fn try_from(value: image::ImageFormat) -> Result<Self, Self::Error> {
-        match value {
+    fn try_from(format: image::ImageFormat) -> Result<Self, Self::Error> {
+        match format {
             image::ImageFormat::PNG => Ok(Format::Png),
             image::ImageFormat::JPEG => Ok(Format::Jpeg),
-            _ => Err(ImageError::UnsupportedFormat),
+            _ => Err(FormatError { format }),
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FormatError {
+    format: image::ImageFormat,
+}
+
+impl fmt::Display for FormatError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "invalid format: {:?}", self.format)
+    }
+}
+
+impl Error for FormatError {}
 
 /// Raw image data.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,18 +94,19 @@ impl Image {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use songmaster_rs::image::{Image, ImageError};
+    /// # use songmaster_rs::image::{Image, LoadError};
     /// let img = Image::load("images/foo.jpg")?;
-    /// # Ok::<(), ImageError>(())
+    /// # Ok::<(), LoadError>(())
     /// ```
-    pub fn load<P>(path: P) -> Result<Self, ImageError>
+    pub fn load<P>(path: P) -> Result<Self, LoadError>
     where
         P: AsRef<Path>,
     {
-        use std::fs;
-
-        let data = fs::read(path)?;
-        let format = image::guess_format(&data[..])?.try_into()?;
+        let data = fs::read(path).map_err(LoadError::CouldntReadFile)?;
+        let format = image::guess_format(&data[..])
+            .map_err(LoadError::CouldntDetectFormat)?
+            .try_into()
+            .map_err(LoadError::UnsupportedFormat)?;
         Ok(Self { data, format })
     }
 
@@ -104,23 +120,21 @@ impl Image {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use songmaster_rs::image::{Image, ImageError, transform_image};
+    /// # use songmaster_rs::image::{Image, LoadWithCacheError, transform_image};
     /// let img = Image::load_with_cache("images", ".cache", "foo", transform_image)?;
-    /// # Ok::<(), ImageError>(())
+    /// # Ok::<(), LoadWithCacheError>(())
     /// ```
     pub fn load_with_cache<P, Q, F>(
         images: P,
         cache: Q,
         name: &str,
         process: F,
-    ) -> Result<Self, ImageError>
+    ) -> Result<Self, LoadWithCacheError>
     where
         P: AsRef<Path>,
         Q: AsRef<Path>,
-        F: Fn(DynamicImage) -> Result<Self, ImageError>,
+        F: Fn(DynamicImage) -> Result<Self, image::ImageError>,
     {
-        use std::fs;
-
         let images = images.as_ref();
         let cache = cache.as_ref();
         let fnames = ["png", "jpg", "jpeg"]
@@ -132,16 +146,41 @@ impl Image {
         let mut cache_paths = fnames.iter().map(|n| cache.join(n));
 
         if let Some(path) = cache_paths.find(|p| p.exists()) {
-            Image::load(path)
+            Image::load(path).map_err(LoadWithCacheError::CacheLoadError)
         } else if let Some(path) = images_paths.find(|p| p.exists()) {
-            let raw = image::open(&path)?;
-            let image = process(raw)?;
+            let raw = image::open(&path).map_err(LoadWithCacheError::CouldntOpenUncachedImage)?;
+            let image = process(raw).map_err(LoadWithCacheError::ProcessError)?;
+            // Ensure that the cache folder exists.
+            fs::create_dir_all(cache).map_err(LoadWithCacheError::CouldntCreateCacheFolder)?;
             let output_name = format!("{}.{}", name, image.format.ext());
             let cache_path = cache.join(output_name);
-            fs::write(cache_path, &image.data[..])?;
+            fs::write(cache_path, &image.data[..])
+                .map_err(LoadWithCacheError::CouldntWriteCachedFile)?;
             Ok(image)
         } else {
-            Err(ImageError::NoImage)
+            Err(LoadWithCacheError::NoImage)
+        }
+    }
+
+    /// Optionally load an image at a path.
+    ///
+    /// If no image exists cached or uncached, this returns an `Ok` containing a `None`.
+    /// If any other errors occur, it returns an `Err`.
+    pub fn try_load_with_cache<P, Q, F>(
+        images: P,
+        cache: Q,
+        name: &str,
+        process: F,
+    ) -> Result<Option<Self>, LoadWithCacheError>
+    where
+        P: AsRef<Path>,
+        Q: AsRef<Path>,
+        F: Fn(DynamicImage) -> Result<Self, image::ImageError>,
+    {
+        match Self::load_with_cache(images, cache, name, process) {
+            Ok(img) => Ok(Some(img)),
+            Err(LoadWithCacheError::NoImage) => Ok(None),
+            Err(e) => Err(e),
         }
     }
 
@@ -160,24 +199,77 @@ impl Image {
     }
 }
 
-/// An error when loading or transforming an image.
+/// An error when loading an image.
 #[derive(Debug)]
-pub enum ImageError {
+pub enum LoadError {
     NoImage,
-    Io(std::io::Error),
-    Image(image::ImageError),
-    UnsupportedFormat,
+    CouldntReadFile(std::io::Error),
+    CouldntDetectFormat(image::ImageError),
+    UnsupportedFormat(FormatError),
 }
 
-impl From<std::io::Error> for ImageError {
-    fn from(err: std::io::Error) -> ImageError {
-        ImageError::Io(err)
+impl fmt::Display for LoadError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            LoadError::NoImage => write!(f, "no image found"),
+            LoadError::CouldntReadFile(e) => write!(f, "couldn't read file: {}", e),
+            LoadError::CouldntDetectFormat(e) => write!(f, "couldn't detect format: {}", e),
+            LoadError::UnsupportedFormat(e) => write!(f, "unsupported format: {}", e),
+        }
     }
 }
 
-impl From<image::ImageError> for ImageError {
-    fn from(err: image::ImageError) -> ImageError {
-        ImageError::Image(err)
+impl Error for LoadError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            LoadError::NoImage => None,
+            LoadError::CouldntReadFile(e) => Some(e),
+            LoadError::CouldntDetectFormat(e) => Some(e),
+            LoadError::UnsupportedFormat(e) => Some(e),
+        }
+    }
+}
+
+/// An error when loading an image with a cache backup.
+#[derive(Debug)]
+pub enum LoadWithCacheError {
+    NoImage,
+    CacheLoadError(LoadError),
+    CouldntOpenUncachedImage(image::ImageError),
+    ProcessError(image::ImageError),
+    CouldntCreateCacheFolder(std::io::Error),
+    CouldntWriteCachedFile(std::io::Error),
+}
+
+impl fmt::Display for LoadWithCacheError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            LoadWithCacheError::NoImage => write!(f, "no image found"),
+            LoadWithCacheError::CacheLoadError(e) => write!(f, "error with cache file: {}", e),
+            LoadWithCacheError::CouldntOpenUncachedImage(e) => {
+                write!(f, "couldn't open uncached image: {}", e)
+            }
+            LoadWithCacheError::ProcessError(e) => write!(f, "error processing image: {}", e),
+            LoadWithCacheError::CouldntCreateCacheFolder(e) => {
+                write!(f, "couldn't create cache folder: {}", e)
+            }
+            LoadWithCacheError::CouldntWriteCachedFile(e) => {
+                write!(f, "couldn't write cached file: {}", e)
+            }
+        }
+    }
+}
+
+impl Error for LoadWithCacheError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            LoadWithCacheError::NoImage => None,
+            LoadWithCacheError::CacheLoadError(e) => Some(e),
+            LoadWithCacheError::CouldntOpenUncachedImage(e)
+            | LoadWithCacheError::ProcessError(e) => Some(e),
+            LoadWithCacheError::CouldntCreateCacheFolder(e)
+            | LoadWithCacheError::CouldntWriteCachedFile(e) => Some(e),
+        }
     }
 }
 
@@ -199,7 +291,7 @@ macro_rules! encode {
 ///
 /// The transformed image is 1000x1000 pixels, and may be a PNG or JPEG. The encoding used is
 /// whichever produces a smaller-sized output.
-pub fn transform_image(img: DynamicImage) -> Result<Image, ImageError> {
+pub fn transform_image(img: DynamicImage) -> Result<Image, image::ImageError> {
     use image::{jpeg::JPEGEncoder, png::PNGEncoder};
 
     let img = img.resize(1000, 1000, image::FilterType::Lanczos3).to_rgb();
@@ -208,15 +300,15 @@ pub fn transform_image(img: DynamicImage) -> Result<Image, ImageError> {
     let png_data = encode!(PNGEncoder, &img)?;
     let jpeg_data = encode!(JPEGEncoder, &img)?;
 
-    if png_data.len() <= jpeg_data.len() {
-        Ok(Image::from_png(png_data))
+    Ok(if png_data.len() <= jpeg_data.len() {
+        Image::from_png(png_data)
     } else {
-        Ok(Image::from_jpeg(jpeg_data))
-    }
+        Image::from_jpeg(jpeg_data)
+    })
 }
 
 /// Transform an image into a format for car use.
-pub fn transform_image_vw(img: DynamicImage) -> Result<Image, ImageError> {
+pub fn transform_image_vw(img: DynamicImage) -> Result<Image, image::ImageError> {
     use image::jpeg::JPEGEncoder;
 
     let img = img.resize(300, 300, image::FilterType::Lanczos3).to_rgb();

@@ -1,12 +1,23 @@
 use crate::{
-    image::{transform_image, transform_image_vw, Image, ImageError},
-    models::disc::{self, Disc, DiscInContext},
+    image::{transform_image, transform_image_vw, Image, LoadWithCacheError},
+    models::{
+        disc::{self, Disc, DiscInContext},
+        track::{TrackInContext, UpdateId3Error, UpdateId3VwError},
+    },
     text::{self, Text},
-    utils::comma_separated,
+    utils::{
+        comma_separated, parse_key_from_hash, parse_singular_or_plural, try_parse_key_from_hash,
+        ParseKeyError, ParseSingularOrPluralError,
+    },
 };
-use std::path::{Path, PathBuf};
+use once_cell::sync::OnceCell;
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+};
 use yaml_rust::Yaml;
 
+#[derive(Debug)]
 pub struct Album {
     title: Text,
     artists: Vec<Text>,
@@ -14,9 +25,12 @@ pub struct Album {
     genre: Option<Text>,
     discs: Vec<Disc>,
     path: PathBuf,
+    cover: OnceCell<Option<Image>>,
+    cover_vw: OnceCell<Option<Image>>,
 }
 
 impl Album {
+    /// Create a new album with only essential information.
     pub fn new<T>(title: T, path: PathBuf) -> Album
     where
         T: Into<Text>,
@@ -28,57 +42,69 @@ impl Album {
             genre: None,
             discs: Vec::new(),
             path,
+            cover: OnceCell::new(),
+            cover_vw: OnceCell::new(),
         }
     }
 
+    /// Load an album's data from YAML.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use songmaster_rs::models::album::Album;
+    /// use std::path::PathBuf;
+    /// use songmaster_rs::text::Text;
+    /// use yaml_rust::YamlLoader;
+    ///
+    /// let yaml = YamlLoader::load_from_str(
+    ///     "
+    /// title: Foo
+    /// artist: Bar
+    /// tracks:
+    ///   - Track 1
+    ///   - title:
+    ///       text: Track 2❤️
+    ///       ascii: Track 2
+    ///     "
+    /// )?
+    ///     .pop()
+    ///     .ok_or("no yaml found")?;
+    ///
+    /// let album = Album::from_yaml_and_path(yaml, PathBuf::from("."))?;
+    /// assert_eq!(&Text::new("Foo"), album.title());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn from_yaml_and_path(yaml: Yaml, path: PathBuf) -> Result<Album, FromYamlError> {
         let mut hash = yaml.into_hash().ok_or(FromYamlError::NotHash)?;
 
-        let title = {
-            let yaml = pop!(hash["title"]).ok_or(FromYamlError::MissingTitle)?;
-            Text::from_yaml(yaml).map_err(FromYamlError::InvalidTitle)?
-        };
+        let title =
+            parse_key_from_hash(&mut hash, "title", Text::from_yaml).map_err(|e| match e {
+                ParseKeyError::KeyNotFound => FromYamlError::MissingTitle,
+                ParseKeyError::InvalidValue(v) => FromYamlError::InvalidTitle(v),
+            })?;
 
-        // TODO: Abstract this plural/singular pattern into a util.
-        let artists = match pop!(hash["artists"]) {
-            Some(artists) => artists
-                .into_vec()
-                .ok_or(FromYamlError::InvalidArtists)?
-                .into_iter()
-                .map(Text::from_yaml)
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(FromYamlError::InvalidArtist),
-            None => {
-                let yaml = pop!(hash["artist"]).ok_or(FromYamlError::MissingArtists)?;
-                Text::from_yaml(yaml)
-                    .map_err(FromYamlError::InvalidArtist)
-                    .map(|v| vec![v])
-            }
-        }?;
+        let artists = parse_singular_or_plural(&mut hash, "artist", "artists", Text::from_yaml)
+            .map_err(|e| match e {
+                ParseSingularOrPluralError::KeysNotFound => FromYamlError::MissingArtists,
+                ParseSingularOrPluralError::NotAnArray(v) => FromYamlError::InvalidArtists(v),
+                ParseSingularOrPluralError::InvalidValue(v) => FromYamlError::InvalidArtist(v),
+            })?;
 
-        let discs = match pop!(hash["discs"]) {
-            Some(discs) => Ok(discs
-                .into_vec()
-                .ok_or(FromYamlError::InvalidDiscs)?
-                .into_iter()
-                .map(Disc::from_yaml)
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(FromYamlError::InvalidDisc)?),
-            None => match pop!(hash["tracks"]) {
-                Some(tracks) => Ok(vec![
-                    Disc::from_yaml(tracks).map_err(FromYamlError::InvalidDisc)?
-                ]),
-                None => Err(FromYamlError::MissingDiscOrTracks),
-            },
-        }?;
+        let discs = parse_singular_or_plural(&mut hash, "tracks", "discs", Disc::from_yaml)
+            .map_err(|e| match e {
+                ParseSingularOrPluralError::KeysNotFound => FromYamlError::MissingDiscOrTracks,
+                ParseSingularOrPluralError::NotAnArray(v) => FromYamlError::InvalidDiscs(v),
+                ParseSingularOrPluralError::InvalidValue(v) => FromYamlError::InvalidDisc(v),
+            })?;
 
-        let year = pop!(hash["year"])
-            .and_then(Yaml::into_i64)
-            .map(|y| y as usize);
+        let year = try_parse_key_from_hash(&mut hash, "year", |y| match y {
+            Yaml::Integer(n) => Ok(n as usize),
+            yaml => Err(yaml),
+        })
+        .map_err(FromYamlError::InvalidYear)?;
 
-        let genre = pop!(hash["genre"])
-            .map(Text::from_yaml)
-            .transpose()
+        let genre = try_parse_key_from_hash(&mut hash, "genre", Text::from_yaml)
             .map_err(FromYamlError::InvalidGenre)?;
 
         Ok(Album {
@@ -88,6 +114,8 @@ impl Album {
             genre,
             discs,
             path,
+            cover: OnceCell::new(),
+            cover_vw: OnceCell::new(),
         })
     }
 
@@ -170,6 +198,10 @@ impl Album {
         self
     }
 
+    pub fn tracks(&self) -> impl Iterator<Item = TrackInContext<DiscInContext>> {
+        Tracks::new(self)
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -202,22 +234,58 @@ impl Album {
         path
     }
 
-    pub fn cover(&self) -> Result<Image, ImageError> {
-        Image::load_with_cache(
-            self.image_path(),
-            self.covers_path(),
-            "Front Cover",
-            transform_image,
-        )
+    pub fn cover(&self) -> Result<Option<&Image>, LoadWithCacheError> {
+        self.cover
+            .get_or_try_init(|| {
+                Image::try_load_with_cache(
+                    self.image_path(),
+                    self.covers_path(),
+                    "Front Cover",
+                    transform_image,
+                )
+            })
+            .map(Option::as_ref)
     }
 
-    pub fn cover_vw(&self) -> Result<Image, ImageError> {
-        Image::load_with_cache(
-            self.image_path(),
-            self.covers_vw_path(),
-            "Front Cover",
-            transform_image_vw,
-        )
+    pub fn cover_vw(&self) -> Result<Option<&Image>, LoadWithCacheError> {
+        self.cover
+            .get_or_try_init(|| {
+                Image::try_load_with_cache(
+                    self.image_path(),
+                    self.covers_vw_path(),
+                    "Front Cover",
+                    transform_image_vw,
+                )
+            })
+            .map(Option::as_ref)
+    }
+
+    pub fn update_id3(&self) -> Result<(), Vec<UpdateId3Error>> {
+        let errors = self
+            .tracks()
+            .map(|t| t.update_id3())
+            .filter_map(Result::err)
+            .collect::<Vec<_>>();
+
+        if !errors.is_empty() {
+            Err(errors)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn update_id3_vw<P: AsRef<Path>>(&self, path: P) -> Result<(), Vec<UpdateId3VwError>> {
+        let errors = self
+            .tracks()
+            .map(|t| t.update_id3_vw(&path))
+            .filter_map(Result::err)
+            .collect::<Vec<_>>();
+
+        if !errors.is_empty() {
+            Err(errors)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -227,13 +295,82 @@ pub enum FromYamlError {
     MissingTitle,
     InvalidTitle(text::FromYamlError),
     MissingArtists,
-    InvalidArtists,
+    InvalidArtists(Yaml),
     InvalidArtist(text::FromYamlError),
-    InvalidDiscs,
+    InvalidDiscs(Yaml),
     InvalidDisc(disc::FromYamlError),
     MissingDiscOrTracks,
-    InvalidYear,
+    InvalidYear(Yaml),
     InvalidGenre(text::FromYamlError),
+}
+
+impl fmt::Display for FromYamlError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            FromYamlError::NotHash => write!(f, "album must be a hash"),
+            FromYamlError::MissingTitle => write!(f, "missing \"title\""),
+            FromYamlError::InvalidTitle(e) => write!(f, "invalid title: {}", e),
+            FromYamlError::MissingArtists => write!(f, "missing \"artists\""),
+            FromYamlError::InvalidArtists(_) => write!(f, "invalid artists"),
+            FromYamlError::InvalidArtist(e) => write!(f, "invalid artist: {}", e),
+            FromYamlError::InvalidDiscs(_) => write!(f, "invalid discs"),
+            FromYamlError::InvalidDisc(e) => write!(f, "invalid disc: {}", e),
+            FromYamlError::MissingDiscOrTracks => write!(f, "missing \"discs\" or \"tracks\""),
+            FromYamlError::InvalidYear(_) => write!(f, "invalid year"),
+            FromYamlError::InvalidGenre(e) => write!(f, "invalid genre: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for FromYamlError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            FromYamlError::InvalidTitle(e)
+            | FromYamlError::InvalidArtist(e)
+            | FromYamlError::InvalidGenre(e) => Some(e),
+            FromYamlError::InvalidDisc(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+struct Tracks<'a> {
+    album: &'a Album,
+    disc_number: usize,
+    track_number: usize,
+}
+
+impl<'a> Tracks<'a> {
+    fn new(album: &'a Album) -> Self {
+        Tracks {
+            album,
+            disc_number: 1,
+            track_number: 1,
+        }
+    }
+}
+
+impl<'a> Iterator for Tracks<'a> {
+    type Item = TrackInContext<'a, DiscInContext<'a>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let disc = loop {
+            if self.disc_number >= self.album.num_discs() {
+                return None;
+            }
+
+            let disc = self.album.disc(self.disc_number);
+
+            if self.track_number < disc.num_tracks() {
+                break disc;
+            }
+
+            self.disc_number += 1;
+            self.track_number = 1;
+        };
+
+        Some(disc.into_track(self.track_number))
+    }
 }
 
 #[cfg(test)]

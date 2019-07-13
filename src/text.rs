@@ -1,6 +1,6 @@
 //! Functions for handling text that can have both full, ASCII, and file-safe representations.
 
-use crate::utils::{parse_key_from_hash, try_parse_key_from_hash, ParseKeyError};
+use crate::utils::{parse_key_from_hash, try_parse_key_from_hash, yaml_into_string, ParseKeyError};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::{
@@ -11,7 +11,7 @@ use std::{
 use yaml_rust::Yaml;
 
 /// A piece of text with an overridable ASCII representation.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Text {
     text: String,
     ascii: Option<String>,
@@ -97,22 +97,14 @@ impl Text {
         match yaml {
             Yaml::String(text) => Ok(Text::new(text)),
             Yaml::Hash(mut hash) => Ok({
-                fn yaml_to_string(yaml: Yaml) -> Result<String, Yaml> {
-                    match yaml {
-                        Yaml::String(s) => Ok(s),
-                        yaml => Err(yaml),
-                    }
-                }
+                let text = parse_key_from_hash(&mut hash, "text", yaml_into_string).map_err(
+                    |e| match e {
+                        ParseKeyError::KeyNotFound => FromYamlError::MissingTextKey,
+                        ParseKeyError::InvalidValue(v) => FromYamlError::InvalidText(v),
+                    },
+                )?;
 
-                let text =
-                    parse_key_from_hash(&mut hash, "text", yaml_to_string).map_err(
-                        |e| match e {
-                            ParseKeyError::KeyNotFound => FromYamlError::MissingTextKey,
-                            ParseKeyError::InvalidValue(v) => FromYamlError::InvalidText(v),
-                        },
-                    )?;
-
-                let ascii = try_parse_key_from_hash(&mut hash, "ascii", yaml_to_string)
+                let ascii = try_parse_key_from_hash(&mut hash, "ascii", yaml_into_string)
                     .map_err(FromYamlError::InvalidAscii)?;
 
                 Text { text, ascii }
@@ -238,18 +230,6 @@ impl fmt::Display for FromYamlError {
 
 impl std::error::Error for FromYamlError {}
 
-impl<'a> From<&'a str> for Text {
-    fn from(text: &'a str) -> Text {
-        Text::new(text)
-    }
-}
-
-impl From<String> for Text {
-    fn from(text: String) -> Text {
-        Text::new(text)
-    }
-}
-
 impl Add for Text {
     type Output = Text;
 
@@ -290,6 +270,24 @@ impl AddAssign<&Text> for Text {
         }
 
         self.text.push_str(&other.text);
+    }
+}
+
+impl fmt::Display for Text {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.text)
+    }
+}
+
+impl<'a> From<&'a str> for Text {
+    fn from(text: &'a str) -> Text {
+        Text::new(text)
+    }
+}
+
+impl From<String> for Text {
+    fn from(text: String) -> Text {
+        Text::new(text)
     }
 }
 

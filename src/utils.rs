@@ -41,55 +41,113 @@ pub fn comma_separated(text: &[Text]) -> Text {
     res
 }
 
-pub enum HashDeErr {
+pub fn yaml_into_string(yaml: Yaml) -> Result<String, Yaml> {
+    match yaml {
+        Yaml::String(s) => Ok(s),
+        yaml => Err(yaml),
+    }
+}
+
+pub fn yaml_into_usize(yaml: Yaml) -> Result<usize, Yaml> {
+    match yaml {
+        Yaml::Integer(i) => Ok(i as usize),
+        yaml => Err(yaml),
+    }
+}
+
+pub fn parse_key_from_hash<F, T, E>(
+    hash: &mut Hash,
+    key: &'static str,
+    transform: F,
+) -> Result<T, ParseKeyError<E>>
+where
+    F: Fn(Yaml) -> Result<T, E>,
+{
+    hash.remove(&yaml_rust::Yaml::from_str(key))
+        .ok_or(ParseKeyError::KeyNotFound)
+        .and_then(|v| transform(v).map_err(ParseKeyError::InvalidValue))
+}
+
+#[derive(Debug)]
+pub enum ParseKeyError<E> {
     KeyNotFound,
-    InvalidValue,
+    InvalidValue(E),
 }
 
-pub fn parse_key_from_hash<F, T>(
+pub fn try_parse_key_from_hash<F, T, E>(
+    hash: &mut Hash,
+    key: &'static str,
+    transform: F,
+) -> Result<Option<T>, E>
+where
+    F: Fn(Yaml) -> Result<T, E>,
+{
+    match parse_key_from_hash(hash, key, transform) {
+        Ok(x) => Ok(Some(x)),
+        Err(ParseKeyError::KeyNotFound) => Ok(None),
+        Err(ParseKeyError::InvalidValue(v)) => Err(v),
+    }
+}
+
+pub fn parse_array_key_from_hash<F, T, E>(
     hash: &mut Hash,
     key: &'static str,
     transform: &F,
-) -> Result<T, HashDeErr>
+) -> Result<Vec<T>, ParseArrayKeyError<E>>
 where
-    F: Fn(Yaml) -> Option<T>,
+    F: Fn(Yaml) -> Result<T, E>,
 {
-    let value = pop!(hash[key]).ok_or(HashDeErr::KeyNotFound)?;
-    transform(value).ok_or(HashDeErr::InvalidValue)
-}
+    let items = match hash
+        .remove(&yaml_rust::Yaml::from_str(key))
+        .ok_or(ParseArrayKeyError::KeyNotFound)?
+    {
+        Yaml::Array(items) => items,
+        yaml => return Err(ParseArrayKeyError::NotAnArray(yaml)),
+    };
 
-pub fn parse_vec_key_from_hash<F, T>(
-    hash: &mut Hash,
-    key: &'static str,
-    transform: &F,
-) -> Result<Vec<T>, HashDeErr>
-where
-    F: Fn(Yaml) -> Option<T>,
-{
-    let value = pop!(hash[key]).ok_or(HashDeErr::KeyNotFound)?;
-    value
-        .into_vec()
-        .ok_or(HashDeErr::InvalidValue)?
+    items
         .into_iter()
         .map(transform)
-        .collect::<Option<Vec<_>>>()
-        .ok_or(HashDeErr::InvalidValue)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(ParseArrayKeyError::InvalidValue)
 }
 
-pub fn parse_singular_or_plural<F, T>(
+#[derive(Debug)]
+pub enum ParseArrayKeyError<E> {
+    KeyNotFound,
+    NotAnArray(Yaml),
+    InvalidValue(E),
+}
+
+pub fn parse_singular_or_plural<F, T, E>(
     hash: &mut Hash,
     singular: &'static str,
     plural: &'static str,
     transform: F,
-) -> Result<Vec<T>, HashDeErr>
+) -> Result<Vec<T>, ParseSingularOrPluralError<E>>
 where
-    F: Fn(Yaml) -> Option<T>,
+    F: Fn(Yaml) -> Result<T, E>,
 {
-    if let Ok(value) = parse_key_from_hash(hash, singular, &transform) {
-        return Ok(vec![value]);
+    match parse_key_from_hash(hash, singular, &transform) {
+        Ok(value) => return Ok(vec![value]),
+        Err(ParseKeyError::KeyNotFound) => {}
+        Err(ParseKeyError::InvalidValue(e)) => {
+            return Err(ParseSingularOrPluralError::InvalidValue(e))
+        }
     }
 
-    parse_vec_key_from_hash(hash, plural, &transform)
+    parse_array_key_from_hash(hash, plural, &transform).map_err(|e| match e {
+        ParseArrayKeyError::KeyNotFound => ParseSingularOrPluralError::KeysNotFound,
+        ParseArrayKeyError::NotAnArray(y) => ParseSingularOrPluralError::NotAnArray(y),
+        ParseArrayKeyError::InvalidValue(e) => ParseSingularOrPluralError::InvalidValue(e),
+    })
+}
+
+#[derive(Debug)]
+pub enum ParseSingularOrPluralError<E> {
+    KeysNotFound,
+    NotAnArray(Yaml),
+    InvalidValue(E),
 }
 
 #[cfg(test)]
