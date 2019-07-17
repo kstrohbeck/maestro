@@ -27,7 +27,7 @@ pub fn num_digits(mut number: usize) -> usize {
 /// # use std::borrow::Cow;
 /// # use songmaster_rs::{text::Text, utils::comma_separated};
 /// let text = [Text::new("foo"), Text::with_ascii("bar", "baar"), Text::new("baz")];
-/// assert_eq!(Cow::Owned::<Text>(Text::with_ascii("foo, bar, baz", "foo, baar, baz"), comma_separated(&text[..]));
+/// assert_eq!(Cow::Owned::<Text>(Text::with_ascii("foo, bar, baz", "foo, baar, baz")), comma_separated(&text[..]));
 /// ```
 pub fn comma_separated(text: &[Text]) -> Cow<Text> {
     if text.len() == 1 {
