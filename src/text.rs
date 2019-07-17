@@ -1,14 +1,11 @@
 //! Functions for handling text that can have both full, ASCII, and file-safe representations.
 
-use crate::utils::{parse_key_from_hash, try_parse_key_from_hash, yaml_into_string, ParseKeyError};
-use lazy_static::lazy_static;
-use regex::Regex;
+use serde::{de, Deserialize};
 use std::{
     borrow::Cow,
     fmt,
     ops::{Add, AddAssign},
 };
-use yaml_rust::Yaml;
 
 /// A piece of text with an overridable ASCII representation.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -56,60 +53,6 @@ impl Text {
         Text {
             text: text.into(),
             ascii: Some(ascii.into()),
-        }
-    }
-
-    /// Parse `Text` from a Yaml source.
-    ///
-    /// A `Text` may be loaded from one of two kinds of YAML objects. If the YAML is a string, that
-    /// string is used as the text, and ASCII is not overridden. If the YAML is a hash, then a
-    /// "text" key is expected with a string value, and an "ascii" key is allowed with a string
-    /// value that overrides the `Text`'s ASCII value.
-    ///
-    /// # Examples
-    ///
-    /// Loading a simple string:
-    ///
-    /// ```rust
-    /// # use songmaster_rs::text::Text;
-    /// use yaml_rust::YamlLoader;
-    ///
-    /// let yaml = YamlLoader::load_from_str("\"foo\"")?.remove(0);
-    /// assert_eq!(Ok(Text::new("foo")), Text::from_yaml(yaml));
-    /// # Ok::<(), yaml_rust::ScanError>(())
-    /// ```
-    ///
-    /// Loading a string with overridden ASCII:
-    ///
-    /// ```rust
-    /// # use songmaster_rs::text::Text;
-    /// use yaml_rust::YamlLoader;
-    ///
-    /// let yaml = YamlLoader::load_from_str("
-    /// text: foo
-    /// ascii: bar
-    /// ")?
-    /// .remove(0);
-    /// assert_eq!(Ok(Text::with_ascii("foo", "bar")), Text::from_yaml(yaml));
-    /// # Ok::<(), yaml_rust::ScanError>(())
-    /// ```
-    pub fn from_yaml(yaml: Yaml) -> Result<Text, FromYamlError> {
-        match yaml {
-            Yaml::String(text) => Ok(Text::new(text)),
-            Yaml::Hash(mut hash) => Ok({
-                let text = parse_key_from_hash(&mut hash, "text", yaml_into_string).map_err(
-                    |e| match e {
-                        ParseKeyError::KeyNotFound => FromYamlError::MissingTextKey,
-                        ParseKeyError::InvalidValue(v) => FromYamlError::InvalidText(v),
-                    },
-                )?;
-
-                let ascii = try_parse_key_from_hash(&mut hash, "ascii", yaml_into_string)
-                    .map_err(FromYamlError::InvalidAscii)?;
-
-                Text { text, ascii }
-            }),
-            yaml => Err(FromYamlError::NotStringOrHash(yaml)),
         }
     }
 
@@ -185,6 +128,9 @@ impl Text {
     /// assert_eq!("Title of Something, The", text.sortable_file_safe());
     /// ```
     pub fn sortable_file_safe(&self) -> Cow<str> {
+        use lazy_static::lazy_static;
+        use regex::Regex;
+
         lazy_static! {
             static ref RE: Regex =
                 Regex::new(r"^(?i)(?P<article>the|an|a)\s(?P<rest>.*)$").unwrap();
@@ -201,34 +147,56 @@ impl Text {
     }
 }
 
-/// An error when parsing a `Text` from YAML.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FromYamlError {
-    /// The hash is missing the "text" key.
-    MissingTextKey,
+impl<'de> Deserialize<'de> for Text {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        struct Visitor;
 
-    /// The hash's "text" value is not a string.
-    InvalidText(Yaml),
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = Text;
 
-    /// The hash's "ascii" value is not a string.
-    InvalidAscii(Yaml),
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a text definition")
+            }
 
-    /// The text object is not a string or a hash.
-    NotStringOrHash(Yaml),
-}
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Text::new(value))
+            }
 
-impl fmt::Display for FromYamlError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            FromYamlError::MissingTextKey => write!(f, "missing \"text\" key"),
-            FromYamlError::InvalidText(_) => write!(f, "invalid \"text\" value"),
-            FromYamlError::InvalidAscii(_) => write!(f, "invalid \"ascii\" value"),
-            FromYamlError::NotStringOrHash(_) => write!(f, "text must be string or hash"),
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: de::MapAccess<'de>,
+            {
+                #[derive(Deserialize)]
+                #[serde(field_identifier, rename_all = "lowercase")]
+                enum Fields {
+                    Text,
+                    Ascii,
+                }
+
+                let mut text = None;
+                let mut ascii = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Fields::Text => field!(map, text),
+                        Fields::Ascii => field!(map, ascii),
+                    }
+                }
+
+                let text = text.ok_or_else(|| de::Error::missing_field("text"))?;
+                Ok(Text { text, ascii })
+            }
         }
+
+        deserializer.deserialize_any(Visitor)
     }
 }
-
-impl std::error::Error for FromYamlError {}
 
 impl Add for Text {
     type Output = Text;
@@ -304,70 +272,41 @@ impl std::iter::Sum for Text {
 mod tests {
     use super::*;
     use matches::assert_matches;
-    use yaml_rust::YamlLoader;
 
     #[test]
     fn simple_yaml_parses_text() {
-        let yaml = YamlLoader::load_from_str("\"foo\"").unwrap().pop().unwrap();
-        let text = Text::from_yaml(yaml).unwrap();
-        assert_eq!(text, Text::new("foo"));
+        let text = serde_yaml::from_str("\"foo\"").unwrap();
+        assert_eq!(Text::new("foo"), text);
     }
 
     #[test]
     fn yaml_with_only_text_parses_text() {
-        let yaml = YamlLoader::load_from_str("text: foo")
-            .unwrap()
-            .pop()
-            .unwrap();
-        let text = Text::from_yaml(yaml).unwrap();
-        assert_eq!(text, Text::new("foo"));
+        let text = serde_yaml::from_str("text: foo").unwrap();
+        assert_eq!(Text::new("foo"), text);
     }
 
     #[test]
     fn yaml_with_text_and_ascii_parses_both() {
-        let yaml = YamlLoader::load_from_str("text: foo\nascii: bar")
-            .unwrap()
-            .pop()
-            .unwrap();
-        let text = Text::from_yaml(yaml).unwrap();
-        assert_eq!(text, Text::with_ascii("foo", "bar"));
+        let text = serde_yaml::from_str(
+            "
+            text: foo
+            ascii: bar
+            ",
+        )
+        .unwrap();
+        assert_eq!(Text::with_ascii("foo", "bar"), text);
     }
 
     #[test]
     fn yaml_non_string_or_hash_doesnt_parse() {
-        let yaml = YamlLoader::load_from_str("123").unwrap().pop().unwrap();
-        let text = Text::from_yaml(yaml);
-        assert_matches!(text, Err(FromYamlError::NotStringOrHash(_)));
+        let text = serde_yaml::from_str::<Text>("[]");
+        assert!(text.is_err());
     }
 
     #[test]
     fn yaml_hash_without_text_doesnt_parse() {
-        let yaml = YamlLoader::load_from_str("ascii: bar")
-            .unwrap()
-            .pop()
-            .unwrap();
-        let text = Text::from_yaml(yaml);
-        assert_eq!(text, Err(FromYamlError::MissingTextKey));
-    }
-
-    #[test]
-    fn yaml_hash_with_bad_text_doesnt_parse() {
-        let yaml = YamlLoader::load_from_str("text: 123")
-            .unwrap()
-            .pop()
-            .unwrap();
-        let text = Text::from_yaml(yaml);
-        assert_matches!(text, Err(FromYamlError::InvalidText(_)));
-    }
-
-    #[test]
-    fn yaml_hash_with_bad_ascii_doesnt_parse() {
-        let yaml = YamlLoader::load_from_str("text: foo\nascii: 123")
-            .unwrap()
-            .pop()
-            .unwrap();
-        let text = Text::from_yaml(yaml);
-        assert_matches!(text, Err(FromYamlError::InvalidAscii(_)));
+        let text = serde_yaml::from_str::<Text>("ascii: bar");
+        assert!(text.is_err());
     }
 
     #[test]

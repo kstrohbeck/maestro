@@ -1,6 +1,5 @@
-use crate::text::Text;
-use std::cmp::max;
-use yaml_rust::yaml::{Hash, Yaml};
+use crate::Text;
+use std::borrow::Cow;
 
 /// Get the number of base 10 digits in a number.
 ///
@@ -17,7 +16,7 @@ pub fn num_digits(mut number: usize) -> usize {
         number /= 10;
         count += 1;
     }
-    max(count, 1)
+    std::cmp::max(count, 1)
 }
 
 /// Creates a text that is the given list of text separated by commas.
@@ -25,134 +24,30 @@ pub fn num_digits(mut number: usize) -> usize {
 /// # Examples
 ///
 /// ```rust
+/// # use std::borrow::Cow;
 /// # use songmaster_rs::{text::Text, utils::comma_separated};
 /// let text = [Text::new("foo"), Text::with_ascii("bar", "baar"), Text::new("baz")];
-/// assert_eq!(Text::with_ascii("foo, bar, baz", "foo, baar, baz"), comma_separated(&text[..]));
+/// assert_eq!(Cow::Owned::<Text>(Text::with_ascii("foo, bar, baz", "foo, baar, baz"), comma_separated(&text[..]));
 /// ```
-pub fn comma_separated(text: &[Text]) -> Text {
-    let mut res = Text::new("");
-    let sep = Text::new(", ");
-    for (i, t) in text.iter().enumerate() {
-        if i != 0 {
-            res += &sep;
+pub fn comma_separated(text: &[Text]) -> Cow<Text> {
+    if text.len() == 1 {
+        Cow::Borrowed(&text[0])
+    } else {
+        let mut res = Text::new("");
+        let sep = Text::new(", ");
+        for (i, t) in text.iter().enumerate() {
+            if i != 0 {
+                res += &sep;
+            }
+            res += t;
         }
-        res += t;
+        Cow::Owned(res)
     }
-    res
-}
-
-pub fn yaml_into_string(yaml: Yaml) -> Result<String, Yaml> {
-    match yaml {
-        Yaml::String(s) => Ok(s),
-        yaml => Err(yaml),
-    }
-}
-
-pub fn yaml_into_usize(yaml: Yaml) -> Result<usize, Yaml> {
-    match yaml {
-        Yaml::Integer(i) => Ok(i as usize),
-        yaml => Err(yaml),
-    }
-}
-
-pub fn parse_key_from_hash<F, T, E>(
-    hash: &mut Hash,
-    key: &'static str,
-    transform: F,
-) -> Result<T, ParseKeyError<E>>
-where
-    F: Fn(Yaml) -> Result<T, E>,
-{
-    hash.remove(&yaml_rust::Yaml::from_str(key))
-        .ok_or(ParseKeyError::KeyNotFound)
-        .and_then(|v| transform(v).map_err(ParseKeyError::InvalidValue))
-}
-
-#[derive(Debug)]
-pub enum ParseKeyError<E> {
-    KeyNotFound,
-    InvalidValue(E),
-}
-
-pub fn try_parse_key_from_hash<F, T, E>(
-    hash: &mut Hash,
-    key: &'static str,
-    transform: F,
-) -> Result<Option<T>, E>
-where
-    F: Fn(Yaml) -> Result<T, E>,
-{
-    match parse_key_from_hash(hash, key, transform) {
-        Ok(x) => Ok(Some(x)),
-        Err(ParseKeyError::KeyNotFound) => Ok(None),
-        Err(ParseKeyError::InvalidValue(v)) => Err(v),
-    }
-}
-
-pub fn parse_array_key_from_hash<F, T, E>(
-    hash: &mut Hash,
-    key: &'static str,
-    transform: &F,
-) -> Result<Vec<T>, ParseArrayKeyError<E>>
-where
-    F: Fn(Yaml) -> Result<T, E>,
-{
-    let items = match hash
-        .remove(&yaml_rust::Yaml::from_str(key))
-        .ok_or(ParseArrayKeyError::KeyNotFound)?
-    {
-        Yaml::Array(items) => items,
-        yaml => return Err(ParseArrayKeyError::NotAnArray(yaml)),
-    };
-
-    items
-        .into_iter()
-        .map(transform)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ParseArrayKeyError::InvalidValue)
-}
-
-#[derive(Debug)]
-pub enum ParseArrayKeyError<E> {
-    KeyNotFound,
-    NotAnArray(Yaml),
-    InvalidValue(E),
-}
-
-pub fn parse_singular_or_plural<F, T, E>(
-    hash: &mut Hash,
-    singular: &'static str,
-    plural: &'static str,
-    transform: F,
-) -> Result<Vec<T>, ParseSingularOrPluralError<E>>
-where
-    F: Fn(Yaml) -> Result<T, E>,
-{
-    match parse_key_from_hash(hash, singular, &transform) {
-        Ok(value) => return Ok(vec![value]),
-        Err(ParseKeyError::KeyNotFound) => {}
-        Err(ParseKeyError::InvalidValue(e)) => {
-            return Err(ParseSingularOrPluralError::InvalidValue(e))
-        }
-    }
-
-    parse_array_key_from_hash(hash, plural, &transform).map_err(|e| match e {
-        ParseArrayKeyError::KeyNotFound => ParseSingularOrPluralError::KeysNotFound,
-        ParseArrayKeyError::NotAnArray(y) => ParseSingularOrPluralError::NotAnArray(y),
-        ParseArrayKeyError::InvalidValue(e) => ParseSingularOrPluralError::InvalidValue(e),
-    })
-}
-
-#[derive(Debug)]
-pub enum ParseSingularOrPluralError<E> {
-    KeysNotFound,
-    NotAnArray(Yaml),
-    InvalidValue(E),
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{comma_separated, num_digits, Text};
+    use super::*;
 
     macro_rules! num_digits_tests {
         ($( $name:ident($num:expr, $digits:expr); )* ) => {
@@ -180,21 +75,24 @@ mod tests {
     #[test]
     fn comma_separated_empty_vec_is_empty() {
         let text = &[];
-        assert_eq!(comma_separated(text), Text::new(""));
+        assert_eq!(Cow::Owned::<Text>(Text::new("")), comma_separated(text));
     }
 
     #[test]
     fn comma_separated_single_is_same() {
         let text = &[Text::with_ascii("foo", "bar")];
-        assert_eq!(comma_separated(text), Text::with_ascii("foo", "bar"));
+        assert_eq!(
+            Cow::Borrowed(&Text::with_ascii("foo", "bar")),
+            comma_separated(text)
+        );
     }
 
     #[test]
     fn comma_separated_double_is_correct() {
         let text = &[Text::with_ascii("foo", "bar"), Text::new("baz")];
         assert_eq!(
+            Cow::Owned::<Text>(Text::with_ascii("foo, baz", "bar, baz")),
             comma_separated(text),
-            Text::with_ascii("foo, baz", "bar, baz")
         );
     }
 
@@ -206,8 +104,8 @@ mod tests {
             Text::with_ascii("quux", "other"),
         ];
         assert_eq!(
+            Cow::Owned::<Text>(Text::with_ascii("foo, baz, quux", "bar, baz, other")),
             comma_separated(text),
-            Text::with_ascii("foo, baz, quux", "bar, baz, other")
         );
     }
 }

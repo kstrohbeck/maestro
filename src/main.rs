@@ -1,5 +1,9 @@
 extern crate songmaster_rs;
 
+fn main() {}
+
+/*
+
 use id3::Tag;
 use songmaster_rs::models::album::Album;
 use std::{
@@ -35,3 +39,5 @@ fn main() {
         }
     }
 }
+
+*/

@@ -1,14 +1,16 @@
 //! Helper macros.
 
-/// Pop a value from a Yaml hash if it exists.
-#[macro_export]
-macro_rules! pop {
-    ($hash:ident[$key:expr]) => {
-        $hash.remove(&::yaml_rust::Yaml::from_str($key))
-    };
-    ($hash:ident[$key:expr] as String) => {
-        $hash
-            .remove(&::yaml_rust::Yaml::from_str($key))
-            .and_then(::yaml_rust::Yaml::into_string)
-    };
+macro_rules! field {
+    ( $map:ident, $field:ident ) => {{
+        if $field.is_some() {
+            return Err(serde::de::Error::duplicate_field(stringify!($field)));
+        }
+        $field = Some($map.next_value()?);
+    }};
+    ( $field:ident $blk:block ) => {{
+        if $field.is_some() {
+            return Err(serde::de::Error::duplicate_field(stringify!($field)));
+        }
+        $field = Some($blk);
+    }};
 }
