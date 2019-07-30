@@ -69,11 +69,11 @@ where
     }
 
     pub fn year(&self) -> Option<usize> {
-        self.track.year
+        self.track.year.or_else(|| self.album().year())
     }
 
     pub fn genre(&self) -> Option<&Text> {
-        self.track.genre()
+        self.track.genre().or_else(|| self.album().genre())
     }
 
     pub fn comment(&self) -> Option<&Text> {
@@ -92,7 +92,7 @@ where
         self.disc.borrow()
     }
 
-    pub fn filename(&self) -> String {
+    pub fn canonical_filename(&self) -> String {
         let digits = num_digits(self.disc().num_tracks());
         format!(
             "{:0width$} - {}.mp3",
@@ -102,9 +102,16 @@ where
         )
     }
 
+    pub fn filename(&self) -> Cow<str> {
+        match self.track.filename() {
+            Some(filename) => filename.into(),
+            None => self.canonical_filename().into(),
+        }
+    }
+
     pub fn filename_vw(&self) -> String {
         if self.album().num_discs() == 1 {
-            return self.filename();
+            return self.canonical_filename();
         }
         let disc_digits = num_digits(self.album().num_discs());
         let track_digits = num_digits(self.disc().num_tracks());
@@ -118,8 +125,15 @@ where
         )
     }
 
+    pub fn canonical_path(&self) -> PathBuf {
+        self.disc().path().join(self.canonical_filename())
+    }
+
     pub fn path(&self) -> PathBuf {
-        self.disc().path().join(self.filename())
+        match self.filename() {
+            Cow::Borrowed(filename) => self.album().path().join(filename),
+            Cow::Owned(filename) => self.disc().path().join(filename),
+        }
     }
 
     pub fn exists(&self) -> bool {
@@ -158,7 +172,7 @@ where
             &self.cover,
             self.album().covers_path(),
             img::transform_image,
-            || self.album().cover(),
+            || self.disc().cover(),
         )
     }
 
@@ -167,13 +181,167 @@ where
             &self.cover_vw,
             self.album().covers_vw_path(),
             img::transform_image_vw,
-            || self.album().cover_vw(),
+            || self.disc().cover_vw(),
         )
     }
 
-    pub fn update_id3(&self) -> Result<(), UpdateId3Error> {
-        use id3::{Content, Frame};
+    pub fn validate(&self) -> Result<(), Vec<ValidateError>> {
+        let tag =
+            Tag::read_from_path(self.path()).map_err(|e| vec![ValidateError::CouldntReadTag(e)])?;
 
+        let mut errors = Vec::new();
+
+        macro_rules! push_err {
+            ( $e:expr ) => {
+                if let Some(err) = $e {
+                    errors.push(err);
+                }
+            };
+        }
+
+        push_err! {
+            match tag.title() {
+                None => Some(ValidateError::MissingFrame("title")),
+                Some(title) if title != self.title().text() => {
+                    Some(ValidateError::IncorrectDataInFrame("title", title.to_string()))
+                }
+                _ => None,
+            }
+        }
+
+        push_err! {
+            match (
+                !self.artists().is_empty(),
+                self.artist().text(),
+                tag.artist(),
+            ) {
+                (false, _, Some(_)) => Some(ValidateError::UnexpectedFrame("artist")),
+                (true, _, None) => Some(ValidateError::MissingFrame("artist")),
+                (_, artist, Some(t_artist)) if artist != t_artist => {
+                    Some(ValidateError::IncorrectDataInFrame("artist", t_artist.to_string()))
+                }
+                _ => None,
+            }
+        }
+
+        push_err! {
+            match tag.track() {
+                None => Some(ValidateError::MissingFrame("track")),
+                Some(track) if track != self.track_number as u32 => {
+                    Some(ValidateError::IncorrectDataInFrame("track", track.to_string()))
+                }
+                _ => None,
+            }
+        }
+
+        push_err! {
+            match (self.album_artist(), tag.album_artist()) {
+                (Some(_), None) => Some(ValidateError::MissingFrame("album artist")),
+                (None, Some(_)) => Some(ValidateError::UnexpectedFrame("album artist")),
+                (Some(ref a), Some(b)) if a.text() != b => {
+                    Some(ValidateError::IncorrectDataInFrame("album artist", b.to_string()))
+                }
+                _ => None,
+            }
+        }
+
+        push_err! {
+            match (
+                !self.disc().is_only_disc(),
+                self.disc().disc_number as u32,
+                tag.disc(),
+            ) {
+                (false, _, Some(_)) => Some(ValidateError::UnexpectedFrame("disc")),
+                (true, _, None) => Some(ValidateError::MissingFrame("disc")),
+                (true, disc, Some(t_disc)) if disc != t_disc => {
+                    Some(ValidateError::IncorrectDataInFrame("disc", t_disc.to_string()))
+                }
+                _ => None,
+            }
+        }
+
+        push_err! {
+            match tag.album() {
+                None => Some(ValidateError::MissingFrame("album")),
+                Some(album) if album != self.album().title().text() => {
+                    Some(ValidateError::IncorrectDataInFrame("album", album.to_string()))
+                }
+                _ => None,
+            }
+        }
+
+        push_err! {
+            match (self.id3_date_recorded(), tag.date_recorded()) {
+                (None, Some(_)) => Some(ValidateError::UnexpectedFrame("year")),
+                (Some(_), None) => Some(ValidateError::MissingFrame("year")),
+                // TODO: Does comparing date_recordeds work?
+                (Some(a), Some(b)) if a != b => {
+                    Some(ValidateError::IncorrectDataInFrame("year", b.to_string()))
+                }
+                _ => None,
+            }
+        }
+
+        push_err! {
+            match (self.genre().map(Text::text), tag.genre()) {
+                (None, Some(_)) => Some(ValidateError::UnexpectedFrame("genre")),
+                (Some(_), None) => Some(ValidateError::MissingFrame("genre")),
+                (Some(a), Some(b)) if a != b => {
+                    Some(ValidateError::IncorrectDataInFrame("genre", b.to_string()))
+                }
+                _ => None,
+            }
+        }
+
+        push_err! {
+            match (self.id3_comment(), tag.comments().nth(0)) {
+                (None, Some(_)) => Some(ValidateError::UnexpectedFrame("comments")),
+                (Some(_), None) => Some(ValidateError::MissingFrame("comments")),
+                // TODO: Does comparing comments work?
+                (Some(ref a), Some(b)) if a != b => {
+                    Some(ValidateError::IncorrectDataInFrame("comments", format!("{:?}", b)))
+                }
+                _ => None,
+            }
+        }
+
+        push_err! {
+            match (self.id3_lyrics(), tag.lyrics().nth(0)) {
+                (None, Some(_)) => Some(ValidateError::UnexpectedFrame("lyrics")),
+                (Some(_), None) => Some(ValidateError::MissingFrame("lyrics")),
+                // TODO: Does comparing lyrics work?
+                (Some(ref a), Some(b)) if a != b => {
+                    Some(ValidateError::IncorrectDataInFrame("lyrics", format!("{:?}", b)))
+                }
+                _ => None,
+            }
+        }
+
+        push_err! {
+            match self.cover_id3_picture() {
+                Ok(cover) => match (cover, tag.pictures().nth(0)) {
+                    (None, Some(_)) => Some(ValidateError::UnexpectedFrame("cover")),
+                    (Some(_), None) => Some(ValidateError::MissingFrame("cover")),
+                    // TODO: Does comparing pictures work?
+                    (Some(ref a), Some(b)) if a != b => {
+                        Some(ValidateError::IncorrectDataInFrame("cover", String::from("...")))
+                    }
+                    _ => None,
+                },
+                Err(err) => Some(ValidateError::CouldntLoadCover(err)),
+            }
+        }
+
+        // TODO: Check for duplicate and erroneous frames.
+
+        if errors.len() == 0 {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    pub fn clear(&self) -> Result<(), UpdateId3Error> {
         // Check if the file exists before trying to create a tag.
         let path = self.path();
         if !path.exists() {
@@ -182,6 +350,7 @@ where
 
         // Remove the old tag.
         // TODO: Remove unwraps.
+        // TODO: This seems redundant with the path check? We should remove that.
         // TODO: See if we can avoid doing this.
         let mut file = OpenOptions::new()
             .write(true)
@@ -190,65 +359,64 @@ where
             .unwrap();
         Tag::remove_from(&mut file).unwrap();
 
+        Ok(())
+    }
+
+    pub fn update_id3(&self) -> Result<(), UpdateId3Error> {
+        // TODO: Use clear?
+        // Check if the file exists before trying to create a tag.
+        let path = self.path();
+        if !path.exists() {
+            return Err(UpdateId3Error::FileNotFound);
+        }
+
+        // Remove the old tag.
+        // TODO: Remove unwraps.
+        // TODO: This seems redundant with the path check? We should remove that.
+        // TODO: See if we can avoid doing this.
+        self.clear()?;
+
         let mut tag = Tag::new();
+
         tag.set_title(self.title().text());
+
         if !self.artists().is_empty() {
             tag.set_artist(self.artist().text());
         }
+
         tag.set_track(self.track_number as u32);
+
         if let Some(album_artist) = self.album_artist() {
             tag.set_album_artist(album_artist.text());
         }
+
         if !self.disc().is_only_disc() {
             tag.set_disc(self.disc().disc_number as u32);
         }
+
         tag.set_album(self.album().title().text());
-        if let Some(year) = self.year() {
-            let timestamp = id3::Timestamp {
-                year: year as i32,
-                month: None,
-                day: None,
-                hour: None,
-                minute: None,
-                second: None,
-            };
-            tag.set_date_recorded(timestamp);
+
+        if let Some(date_recorded) = self.id3_date_recorded() {
+            tag.set_date_recorded(date_recorded);
         }
+
         if let Some(genre) = self.genre() {
             tag.set_genre(genre.text());
         }
-        if let Some(comment) = self.comment() {
-            // TODO: Maybe make comments a dictionary from description to text?
-            let comment = id3::frame::Comment {
-                lang: "eng".to_string(),
-                description: "".to_string(),
-                text: comment.text().to_string(),
-            };
-            tag.add_comment(comment)
-        }
-        if let Some(lyrics) = self.lyrics() {
-            // TODO: Handle non-English lyrics.
-            let lyrics = id3::frame::Lyrics {
-                lang: "eng".to_string(),
-                description: "".to_string(),
-                text: lyrics.text().to_string(),
-            };
-            // TODO: As soon as the next version of id3 is released, update this to `add_lyrics`.
-            tag.add_frame(Frame::with_content("USLT", Content::Lyrics(lyrics)));
+
+        if let Some(comment) = self.id3_comment() {
+            tag.add_comment(comment);
         }
 
-        if let Some(Image {
-            ref data,
-            ref format,
-        }) = self.cover().map_err(UpdateId3Error::CoverError)?
+        if let Some(lyrics) = self.id3_lyrics() {
+            tag.add_lyrics(lyrics);
+        }
+
+        if let Some(picture) = self
+            .cover_id3_picture()
+            .map_err(UpdateId3Error::CoverError)?
         {
-            let cover = id3::frame::Picture {
-                mime_type: format.mime().to_string(),
-                picture_type: id3::frame::PictureType::CoverFront,
-                description: "".to_string(),
-                data: data.clone(),
-            };
-            tag.add_picture(cover);
+            tag.add_picture(picture);
         }
 
         tag.write_to_path(path, Version::Id3v24)
@@ -267,7 +435,7 @@ where
         }
 
         // Copy file to destination.
-        let path = folder.join(self.filename_vw());
+        let path = folder.join(&self.filename_vw() as &str);
         fs::copy(orig_path, &path).map_err(UpdateId3VwError::CopyError)?;
 
         // Remove the old tag.
@@ -281,17 +449,23 @@ where
         Tag::remove_from(&mut file).unwrap();
 
         let mut tag = Tag::new();
+
         tag.set_title(self.title().ascii());
+
         if !self.artists().is_empty() {
             tag.set_artist(self.artist().ascii());
         }
+
         tag.set_track(self.track_number as u32);
+
         if let Some(album_artist) = self.album_artist() {
             tag.set_album_artist(album_artist.ascii());
         }
+
         if !self.disc().is_only_disc() {
             tag.set_disc(self.disc().disc_number as u32);
         }
+
         tag.set_album(self.album().title().ascii());
 
         if let Some(Image { data, format }) =
@@ -309,8 +483,57 @@ where
         tag.write_to_path(path, Version::Id3v24)
             .map_err(UpdateId3VwError::WriteError)
     }
+
+    fn id3_date_recorded(&self) -> Option<id3::Timestamp> {
+        self.year().map(|year| id3::Timestamp {
+            year: year as i32,
+            month: None,
+            day: None,
+            hour: None,
+            minute: None,
+            second: None,
+        })
+    }
+
+    fn id3_comment(&self) -> Option<id3::frame::Comment> {
+        self.comment().map(|comment| id3::frame::Comment {
+            lang: "eng".to_string(),
+            description: "".to_string(),
+            text: comment.text().to_string(),
+        })
+    }
+
+    fn id3_lyrics(&self) -> Option<id3::frame::Lyrics> {
+        // TODO: Handle non-English lyrics.
+        self.lyrics().map(|lyrics| id3::frame::Lyrics {
+            lang: "eng".to_string(),
+            description: "".to_string(),
+            text: lyrics.text().to_string(),
+        })
+    }
+
+    fn cover_id3_picture(&self) -> Result<Option<id3::frame::Picture>, LoadWithCacheError> {
+        Ok(self.cover()?.map(|img| id3::frame::Picture {
+            mime_type: img.format.mime().to_string(),
+            picture_type: id3::frame::PictureType::CoverFront,
+            description: "".to_string(),
+            data: img.data.clone(),
+        }))
+    }
 }
 
+// TODO: Implement Error.
+#[derive(Debug)]
+pub enum ValidateError {
+    CouldntReadTag(id3::Error),
+    MissingFrame(&'static str),
+    DuplicateFrame(&'static str),
+    IncorrectDataInFrame(&'static str, String),
+    UnexpectedFrame(&'static str),
+    CouldntLoadCover(LoadWithCacheError),
+}
+
+// TODO: Implement Error.
 #[derive(Debug)]
 pub enum UpdateId3Error {
     FileNotFound,
@@ -318,6 +541,7 @@ pub enum UpdateId3Error {
     WriteError(id3::Error),
 }
 
+// TODO: Implement Error.
 #[derive(Debug)]
 pub enum UpdateId3VwError {
     FileNotFound,

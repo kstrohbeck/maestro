@@ -1,6 +1,6 @@
 use super::{
     disc::Disc,
-    track::{Track, UpdateId3Error, UpdateId3VwError},
+    track::{Track, UpdateId3Error, UpdateId3VwError, ValidateError},
 };
 use crate::{
     image::{Image, LoadWithCacheError},
@@ -14,6 +14,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[derive(Debug)]
 pub struct Album {
     album: raw::Album,
     path: PathBuf,
@@ -39,25 +40,10 @@ impl Album {
         let album =
             serde_yaml::from_reader(definition).map_err(AlbumLoadError::InvalidDefinition)?;
         Ok(Self::new(album, path))
+    }
 
-        /*
-        use std::{convert::TryInto, fs};
-        use yaml_rust::YamlLoader;
-
-        let path = path.into();
-
-        let definition = fs::read_to_string(path.join("extras/album.yaml"))
-            .map_err(AlbumLoadError::CouldntLoadDefinition)?;
-
-        let album = YamlLoader::load_from_str(&definition)
-            .map_err(AlbumLoadError::InvalidYaml)?
-            .pop()
-            .ok_or(AlbumLoadError::EmptyDefinition)?
-            .try_into()
-            .map_err(AlbumLoadError::InvalidAlbum)?;
-
-        Ok(Self::new(album, path))
-        */
+    pub fn raw(&self) -> &raw::Album {
+        &self.album
     }
 
     pub fn title(&self) -> &Text {
@@ -162,32 +148,8 @@ impl Album {
         self.get_cover(&self.cover_vw, self.covers_vw_path(), transform_image_vw)
     }
 
-    pub fn update_id3(&self) -> Result<(), Vec<UpdateId3Error>> {
-        let errors = self
-            .tracks()
-            .map(|t| t.update_id3())
-            .filter_map(Result::err)
-            .collect::<Vec<_>>();
-
-        if !errors.is_empty() {
-            Err(errors)
-        } else {
-            Ok(())
-        }
-    }
-
-    pub fn update_id3_vw<P: AsRef<Path>>(&self, path: P) -> Result<(), Vec<UpdateId3VwError>> {
-        let errors = self
-            .tracks()
-            .map(|t| t.update_id3_vw(&path))
-            .filter_map(Result::err)
-            .collect::<Vec<_>>();
-
-        if !errors.is_empty() {
-            Err(errors)
-        } else {
-            Ok(())
-        }
+    pub fn save(&mut self) -> Result<(), ()> {
+        Ok(())
     }
 }
 
@@ -237,17 +199,18 @@ impl<'a> Iterator for Tracks<'a> {
     type Item = Track<'a, Disc<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let disc = loop {
+        loop {
             let disc = self.album.disc(self.disc_number)?;
-
-            if self.track_number < disc.num_tracks() {
-                break disc;
+            match disc.into_track(self.track_number) {
+                None => {
+                    self.disc_number += 1;
+                    self.track_number = 1;
+                }
+                Some(track) => {
+                    self.track_number += 1;
+                    break Some(track);
+                }
             }
-
-            self.disc_number += 1;
-            self.track_number = 1;
-        };
-
-        Some(disc.into_track(self.track_number))
+        }
     }
 }

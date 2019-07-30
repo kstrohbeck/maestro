@@ -8,6 +8,7 @@ pub mod image;
 pub mod raw;
 pub mod text;
 pub mod track;
+pub mod unicode;
 pub mod utils;
 
 pub use text::Text;

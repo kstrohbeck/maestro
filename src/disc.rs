@@ -1,11 +1,18 @@
 use super::{album::Album, track::Track};
-use crate::{raw, utils::num_digits};
+use crate::{
+    image::{self as img, Image, LoadWithCacheError},
+    raw,
+    utils::num_digits,
+};
+use once_cell::sync::OnceCell;
 use std::{borrow::Cow, path::Path};
 
 pub struct Disc<'a> {
     pub album: &'a Album,
     disc: &'a raw::Disc,
     pub disc_number: usize,
+    cover: OnceCell<Option<Image>>,
+    cover_vw: OnceCell<Option<Image>>,
 }
 
 impl<'a> Disc<'a> {
@@ -14,6 +21,8 @@ impl<'a> Disc<'a> {
             album,
             disc,
             disc_number,
+            cover: OnceCell::new(),
+            cover_vw: OnceCell::new(),
         }
     }
 
@@ -32,9 +41,11 @@ impl<'a> Disc<'a> {
             .map(|t| Track::new(self, t, track_number))
     }
 
-    pub fn into_track(self, track_number: usize) -> Track<'a, Disc<'a>> {
-        let track = &self.disc.tracks()[track_number - 1];
-        Track::new(self, track, track_number)
+    pub fn into_track(self, track_number: usize) -> Option<Track<'a, Disc<'a>>> {
+        self.disc
+            .tracks()
+            .get(track_number - 1)
+            .map(|track| Track::new(self, track, track_number))
     }
 
     pub fn tracks(&self) -> impl Iterator<Item = Track<&Disc>> {
@@ -60,6 +71,51 @@ impl<'a> Disc<'a> {
             None => album_path.into(),
             Some(name) => album_path.join(name).into(),
         }
+    }
+
+    fn get_cover<'b, P, F, G>(
+        &'b self,
+        cover: &'b OnceCell<Option<Image>>,
+        covers_path: P,
+        transform: F,
+        fallback: G,
+    ) -> Result<Option<&'b Image>, LoadWithCacheError>
+    where
+        P: AsRef<Path>,
+        F: Fn(image::DynamicImage) -> Result<Image, image::ImageError>,
+        G: Fn() -> Result<Option<&'b Image>, LoadWithCacheError>,
+    {
+        cover
+            .get_or_try_init(|| {
+                let name = match self.filename() {
+                    Some(name) => name,
+                    None => return Ok(None),
+                };
+
+                Image::try_load_with_cache(self.album.image_path(), covers_path, &name, transform)
+            })
+            .and_then(|o| match o {
+                Some(x) => Ok(Some(x)),
+                None => fallback(),
+            })
+    }
+
+    pub fn cover(&self) -> Result<Option<&Image>, LoadWithCacheError> {
+        self.get_cover(
+            &self.cover,
+            self.album.covers_path(),
+            img::transform_image,
+            || self.album.cover(),
+        )
+    }
+
+    pub fn cover_vw(&self) -> Result<Option<&Image>, LoadWithCacheError> {
+        self.get_cover(
+            &self.cover_vw,
+            self.album.covers_vw_path(),
+            img::transform_image_vw,
+            || self.album.cover_vw(),
+        )
     }
 }
 

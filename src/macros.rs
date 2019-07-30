@@ -14,3 +14,11 @@ macro_rules! field {
         $field = Some($blk);
     }};
 }
+
+macro_rules! ser_field {
+    ( $state:expr, $field:literal, $val:expr ) => {
+        if let Some(val) = $val {
+            $state.serialize_field($field, &val)?;
+        }
+    };
+}

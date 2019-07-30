@@ -1,17 +1,39 @@
 //! Functions for handling text that can have both full, ASCII, and file-safe representations.
 
-use serde::{de, Deserialize};
+use serde::{de, ser, Deserialize, Serialize};
 use std::{
     borrow::Cow,
     fmt,
     ops::{Add, AddAssign},
 };
+use unicode_normalization::UnicodeNormalization;
 
 /// A piece of text with an overridable ASCII representation.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Text {
     text: String,
     ascii: Option<String>,
+}
+
+fn str_to_ascii(s: &str) -> Cow<str> {
+    if s.is_ascii() {
+        return s.into();
+    }
+
+    // Decompose unicode characters to handle accents.
+    s.nfkd()
+        .filter_map(|c| {
+            // Map non-ascii characters to their equivalents.
+            if c.is_ascii() {
+                Some(c)
+            } else if c == '’' || c == '‘' {
+                Some('\'')
+            } else {
+                None
+            }
+        })
+        .collect::<String>()
+        .into()
 }
 
 impl Text {
@@ -69,16 +91,12 @@ impl Text {
         if let Some(asc) = &self.ascii {
             return asc.into();
         }
+        str_to_ascii(self.text())
+    }
 
-        let text = self.text();
-        if text.is_ascii() {
-            return text.into();
-        }
-
-        text.chars()
-            .map(|c| if c.is_ascii() { c } else { '?' })
-            .collect::<String>()
-            .into()
+    /// Returns if this `Text` has an overridden `ascii` value.
+    pub fn has_ascii(&self) -> bool {
+        self.ascii.is_some()
     }
 
     /// Get a version of the `Text` safe to use in filenames.
@@ -147,6 +165,31 @@ impl Text {
     }
 }
 
+impl Default for Text {
+    fn default() -> Self {
+        Text::new("")
+    }
+}
+
+impl Serialize for Text {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+
+        match self.ascii {
+            Some(ref ascii) => {
+                let mut state = serializer.serialize_struct("Text", 2)?;
+                state.serialize_field("text", &self.text)?;
+                state.serialize_field("ascii", ascii)?;
+                state.end()
+            }
+            None => serializer.serialize_str(&self.text),
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for Text {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -202,7 +245,26 @@ impl Add for Text {
     type Output = Text;
 
     fn add(self, other: Self) -> Self::Output {
-        <Self as Add<&Text>>::add(self, &other)
+        let ascii = match (self.ascii, other.ascii) {
+            (None, None) => None,
+            (None, Some(mut ascii)) => {
+                ascii.insert_str(0, &str_to_ascii(&self.text));
+                Some(ascii)
+            }
+            (Some(mut ascii), None) => {
+                ascii.push_str(&str_to_ascii(&other.text));
+                Some(ascii)
+            }
+            (Some(mut ascii), Some(other)) => {
+                ascii.push_str(&other);
+                Some(ascii)
+            }
+        };
+
+        let mut text = self.text;
+        text.push_str(&other.text);
+
+        Text { text, ascii }
     }
 }
 
@@ -210,14 +272,83 @@ impl Add<&Text> for Text {
     type Output = Text;
 
     fn add(self, other: &Self) -> Self::Output {
-        #[allow(clippy::suspicious_arithmetic_impl)]
-        let ascii = if self.ascii.is_none() && other.ascii.is_none() {
-            None
-        } else {
-            Some(self.ascii().into_owned() + &other.ascii())
+        let ascii = match (self.ascii, other.ascii.as_ref()) {
+            (None, None) => None,
+            (None, Some(other)) => {
+                let mut ascii = str_to_ascii(&self.text).into_owned();
+                ascii.push_str(other);
+                Some(ascii)
+            }
+            (Some(mut ascii), None) => {
+                ascii.push_str(&str_to_ascii(&other.text));
+                Some(ascii)
+            }
+            (Some(mut ascii), Some(other)) => {
+                ascii.push_str(&other);
+                Some(ascii)
+            }
         };
 
-        let text = self.text + &other.text;
+        let mut text = self.text;
+        text.push_str(&other.text);
+
+        Text { text, ascii }
+    }
+}
+
+impl Add<Text> for &Text {
+    type Output = Text;
+
+    fn add(self, other: Text) -> Self::Output {
+        let ascii = match (self.ascii.as_ref(), other.ascii) {
+            (None, None) => None,
+            (None, Some(mut ascii)) => {
+                ascii.insert_str(0, &str_to_ascii(&self.text));
+                Some(ascii)
+            }
+            (Some(ascii), None) => {
+                let mut ascii = ascii.clone();
+                ascii.push_str(&str_to_ascii(&other.text));
+                Some(ascii)
+            }
+            (Some(ascii), Some(mut other)) => {
+                other.insert_str(0, ascii);
+                Some(other)
+            }
+        };
+
+        let mut text = other.text;
+        text.insert_str(0, &self.text);
+
+        Text { text, ascii }
+    }
+}
+
+impl<'a, 'b> Add<&'b Text> for &'a Text {
+    type Output = Text;
+
+    fn add(self, other: &'b Text) -> Self::Output {
+        let ascii = match (self.ascii.as_ref(), other.ascii.as_ref()) {
+            (None, None) => None,
+            (None, Some(other)) => {
+                let mut ascii = str_to_ascii(&self.text).into_owned();
+                ascii.push_str(other);
+                Some(ascii)
+            }
+            (Some(ascii), None) => {
+                let mut ascii = ascii.clone();
+                ascii.push_str(&str_to_ascii(&other.text));
+                Some(ascii)
+            }
+            (Some(ascii), Some(other)) => {
+                let mut ascii = ascii.clone();
+                ascii.push_str(&other);
+                Some(ascii)
+            }
+        };
+
+        let mut text = self.text.clone();
+        text.push_str(&other.text);
 
         Text { text, ascii }
     }
@@ -274,6 +405,51 @@ mod tests {
     use matches::assert_matches;
 
     #[test]
+    fn simple_text_serializes_to_string() {
+        use serde_yaml::Value;
+        let text = Text::new("foo");
+        let yaml = serde_yaml::to_value(&text).unwrap();
+        let expected: Value = "foo".into();
+        assert_eq!(expected, yaml);
+    }
+
+    #[test]
+    fn simple_text_is_serde_equal() {
+        let text = Text::new("foo");
+        let new_text: Text = serde_yaml::to_string(&text)
+            .and_then(|s| serde_yaml::from_str(&s))
+            .unwrap();
+        assert_eq!(text, new_text);
+    }
+
+    #[test]
+    fn ascii_text_serializes_to_struct() {
+        use serde_yaml::Value;
+        let text = Text::with_ascii("foo", "bar");
+        let yaml = serde_yaml::to_value(&text).unwrap();
+        let mapping = match yaml {
+            Value::Mapping(mapping) => mapping,
+            _ => panic!("yaml wasn't mapping"),
+        };
+
+        let pairs = mapping.into_iter().collect::<Vec<_>>();
+        let expected: Vec<(Value, Value)> = vec![
+            ("text".into(), "foo".into()),
+            ("ascii".into(), "bar".into()),
+        ];
+        assert_eq!(expected, pairs);
+    }
+
+    #[test]
+    fn ascii_text_is_serde_equal() {
+        let text = Text::with_ascii("foo", "bar");
+        let new_text: Text = serde_yaml::to_string(&text)
+            .and_then(|s| serde_yaml::from_str(&s))
+            .unwrap();
+        assert_eq!(text, new_text);
+    }
+
+    #[test]
     fn simple_yaml_parses_text() {
         let text = serde_yaml::from_str("\"foo\"").unwrap();
         assert_eq!(Text::new("foo"), text);
@@ -322,9 +498,21 @@ mod tests {
     }
 
     #[test]
-    fn ascii_replaces_nonascii_characters() {
+    fn ascii_translates_punctuation() {
+        let text = Text::new("Let’s");
+        assert_eq!(text.ascii(), "Let's");
+    }
+
+    #[test]
+    fn ascii_translates_accented_characters() {
+        let text = Text::new("héllo");
+        assert_eq!(text.ascii(), "hello");
+    }
+
+    #[test]
+    fn ascii_removes_nonascii_characters() {
         let text = Text::new("fire = 🔥");
-        assert_eq!(text.ascii(), "fire = ?");
+        assert_eq!(text.ascii(), "fire = ");
     }
 
     #[test]
@@ -451,12 +639,37 @@ mod tests {
     fn texts_add_text_together() {
         let (a, b) = (Text::new("hello"), Text::new("world"));
         assert_eq!(a + b, Text::new("helloworld"));
+        let (a, b) = (Text::new("hello"), Text::new("world"));
+        assert_eq!(a + &b, Text::new("helloworld"));
+        let (a, b) = (Text::new("hello"), Text::new("world"));
+        assert_eq!(&a + b, Text::new("helloworld"));
+        let (a, b) = (Text::new("hello"), Text::new("world"));
+        assert_eq!(&a + &b, Text::new("helloworld"));
+    }
+
+    macro_rules! add_tests {
+        ($a:ident, $b:ident, $exp:expr) => {
+            let (x, y) = ($a.clone(), $b.clone());
+            assert_eq!($exp, x + y);
+            let (x, y) = ($a.clone(), $b.clone());
+            assert_eq!($exp, x + &y);
+            let (x, y) = ($a.clone(), $b.clone());
+            assert_eq!($exp, &x + y);
+            let (x, y) = ($a.clone(), $b.clone());
+            assert_eq!($exp, &x + &y);
+        };
     }
 
     #[test]
-    fn texts_add_asciis_together() {
+    fn texts_add_first_asciis_together() {
+        let (a, b) = (Text::with_ascii("hello", "goodbye"), Text::new("world"));
+        add_tests!(a, b, Text::with_ascii("helloworld", "goodbyeworld"));
+    }
+
+    #[test]
+    fn texts_add_second_asciis_together() {
         let (a, b) = (Text::new("hello"), Text::with_ascii("world", "universe"));
-        assert_eq!(a + b, Text::with_ascii("helloworld", "hellouniverse"));
+        add_tests!(a, b, Text::with_ascii("helloworld", "hellouniverse"));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use super::disc::Disc;
 use crate::Text;
-use serde::{de, Deserialize};
+use serde::{de, ser, Deserialize, Serialize};
 use std::{borrow::Cow, fmt};
 
 #[derive(Debug)]
@@ -62,6 +62,43 @@ impl Album {
     pub fn with_discs<T: Into<Vec<Disc>>>(mut self, discs: T) -> Self {
         self.discs = discs.into();
         self
+    }
+}
+
+impl Serialize for Album {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        use ser::SerializeStruct;
+
+        let num_fields = [self.year.is_some(), self.genre.is_some()]
+            .iter()
+            .copied()
+            .filter(|x| *x)
+            .count()
+            + 3;
+
+        let mut state = serializer.serialize_struct("Album", num_fields)?;
+
+        state.serialize_field("title", &self.title)?;
+
+        if self.artists.len() == 1 {
+            state.serialize_field("artist", &self.artists[0])?;
+        } else {
+            state.serialize_field("artists", &self.artists)?;
+        }
+
+        ser_field!(state, "year", self.year);
+        ser_field!(state, "genre", self.genre());
+
+        if self.discs.len() == 1 {
+            state.serialize_field("tracks", &self.discs[0])?;
+        } else {
+            state.serialize_field("discs", &self.discs)?;
+        }
+
+        state.end()
     }
 }
 
