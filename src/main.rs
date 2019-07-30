@@ -53,8 +53,13 @@ enum Command {
 }
 
 fn main() {
-    let Opt { folder, command, verbose, dry_run } = Opt::from_args();
-    match opt.command {
+    let Opt {
+        folder,
+        command,
+        verbose,
+        dry_run,
+    } = Opt::from_args();
+    match command {
         Command::Update => {
             let album = Album::load(folder).unwrap();
             let tracks = album.tracks().collect::<Vec<_>>();
