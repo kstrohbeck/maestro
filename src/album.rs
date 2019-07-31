@@ -42,6 +42,12 @@ impl Album {
         Ok(Self::new(album, path))
     }
 
+    pub fn generate<P: Into<PathBuf>>(path: P) -> Self {
+        let path = path.into();
+        let album = raw::Album::generate(&path);
+        Self::new(album, path)
+    }
+
     pub fn raw(&self) -> &raw::Album {
         &self.album
     }

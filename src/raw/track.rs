@@ -101,6 +101,11 @@ impl Track {
         self.featuring = featuring.into();
         self
     }
+
+    pub fn with_filename<T: Into<Option<String>>>(mut self, filename: T) -> Self {
+        self.filename = filename.into();
+        self
+    }
 }
 
 impl Serialize for Track {

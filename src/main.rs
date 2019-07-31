@@ -5,6 +5,7 @@ use rayon::prelude::*;
 use songmaster_rs::album::Album;
 use std::path::PathBuf;
 use structopt::StructOpt;
+use walkdir::WalkDir;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "songmaster")]
@@ -50,6 +51,9 @@ enum Command {
 
     /// Rename files to match manifest content.
     Rename,
+
+    /// Generate an album definition from a folder of MP3 files.
+    Generate,
 }
 
 fn main() {
@@ -198,6 +202,12 @@ fn main() {
             // If !errs.is_empty(), quit with an error.
 
             // TODO: Update the album.yaml.
+        }
+        Command::Generate => {
+            let album = Album::generate(folder);
+            // TODO: Actually write the album to a file instead of printing.
+            let stdout = std::io::stdout();
+            serde_yaml::to_writer(stdout, album.raw()).unwrap();
         }
     }
 }
