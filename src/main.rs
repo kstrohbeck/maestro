@@ -204,10 +204,12 @@ fn main() {
             // TODO: Update the album.yaml.
         }
         Command::Generate => {
+            use std::fs;
+
             let album = Album::generate(folder);
-            // TODO: Actually write the album to a file instead of printing.
-            let stdout = std::io::stdout();
-            serde_yaml::to_writer(stdout, album.raw()).unwrap();
+            fs::create_dir_all(album.extras_path()).unwrap();
+            let file = fs::File::create(album.extras_path().join("album.yaml")).unwrap();
+            serde_yaml::to_writer(file, album.raw()).unwrap();
         }
     }
 }
