@@ -7,6 +7,7 @@ use crate::{
 use once_cell::sync::OnceCell;
 use std::{borrow::Cow, path::Path};
 
+#[derive(Clone)]
 pub struct Disc<'a> {
     pub album: &'a Album,
     disc: &'a raw::Disc,
@@ -34,26 +35,26 @@ impl<'a> Disc<'a> {
         self.album.num_discs() == 1
     }
 
-    pub fn track(&self, track_number: usize) -> Option<Track<&Disc>> {
+    pub fn track(&self, track_number: usize) -> Option<Track> {
         self.disc
             .tracks()
             .get(track_number - 1)
-            .map(|t| Track::new(self, t, track_number))
+            .map(|t| Track::new(Cow::Borrowed(self), t, track_number))
     }
 
-    pub fn into_track(self, track_number: usize) -> Option<Track<'a, Disc<'a>>> {
+    pub fn into_track(self, track_number: usize) -> Option<Track<'a>> {
         self.disc
             .tracks()
             .get(track_number - 1)
-            .map(|track| Track::new(self, track, track_number))
+            .map(|track| Track::new(Cow::Owned(self), track, track_number))
     }
 
-    pub fn tracks(&self) -> impl Iterator<Item = Track<&Disc>> {
+    pub fn tracks(&self) -> impl Iterator<Item = Track> {
         self.disc
             .tracks()
             .iter()
             .zip(1..)
-            .map(move |(t, i)| Track::new(self, t, i))
+            .map(move |(t, i)| Track::new(Cow::Borrowed(self), t, i))
     }
 
     pub fn filename(&self) -> Option<String> {

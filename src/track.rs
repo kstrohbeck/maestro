@@ -8,27 +8,21 @@ use crate::{
 use id3::{Tag, Version};
 use once_cell::sync::OnceCell;
 use std::{
-    borrow::{Borrow, Cow},
+    borrow::Cow,
     fs::{self, OpenOptions},
     path::{Path, PathBuf},
 };
 
-pub struct Track<'a, T>
-where
-    T: Borrow<Disc<'a>>,
-{
-    pub disc: T,
+pub struct Track<'a> {
+    disc: Cow<'a, Disc<'a>>,
     track: &'a raw::Track,
     pub track_number: usize,
     cover: OnceCell<Option<Image>>,
     cover_vw: OnceCell<Option<Image>>,
 }
 
-impl<'a, T> Track<'a, T>
-where
-    T: Borrow<Disc<'a>>,
-{
-    pub fn new(disc: T, track: &'a raw::Track, track_number: usize) -> Track<'a, T> {
+impl<'a> Track<'a> {
+    pub fn new(disc: Cow<'a, Disc<'a>>, track: &'a raw::Track, track_number: usize) -> Track<'a> {
         Track {
             disc,
             track,
@@ -89,7 +83,7 @@ where
     }
 
     pub fn disc(&self) -> &Disc {
-        self.disc.borrow()
+        &self.disc
     }
 
     pub fn canonical_filename(&self) -> String {

@@ -202,7 +202,7 @@ impl<'a> Tracks<'a> {
 }
 
 impl<'a> Iterator for Tracks<'a> {
-    type Item = Track<'a, Disc<'a>>;
+    type Item = Track<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
