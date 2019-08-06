@@ -2,21 +2,21 @@ extern crate songmaster_rs;
 
 use indicatif::ProgressBar;
 use rayon::prelude::*;
-use songmaster_rs::album::Album;
+use songmaster_rs::album::{Album, AlbumLoadError};
+use songmaster_rs::track::Track;
 use std::path::PathBuf;
 use structopt::StructOpt;
-use walkdir::WalkDir;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "songmaster")]
 /// Music album organization and tagging software.
 struct Opt {
-    #[structopt(parse(from_os_str))]
-    /// The path to the album.
-    folder: PathBuf,
-
     #[structopt(subcommand)]
     command: Command,
+
+    #[structopt(long, default_value = ".", parse(from_os_str))]
+    /// The path to the album. The current directory is used if not specified.
+    folder: PathBuf,
 
     #[structopt(short = "v", parse(from_occurrences))]
     /// Verbosity of output.
@@ -63,6 +63,7 @@ fn main() {
         verbose,
         dry_run,
     } = Opt::from_args();
+
     match command {
         Command::Update => {
             let album = Album::load(folder).unwrap();
