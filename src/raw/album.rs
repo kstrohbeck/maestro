@@ -42,7 +42,7 @@ impl Album {
 
         let path = path.as_ref();
 
-        let track_infos = WalkDir::new(path)
+        let mut track_infos = WalkDir::new(path)
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|d| d.file_type().is_file())
@@ -61,6 +61,8 @@ impl Album {
                 })
             })
             .collect::<Vec<_>>();
+
+        track_infos.sort_by(|a, b| a.path.cmp(&b.path));
 
         fn get_most_often<'a, T, F>(track_infos: &'a [TrackInfo], get: F) -> Option<T>
         where
@@ -117,8 +119,7 @@ impl Album {
         }
 
         let mut discs = discs.into_iter().collect::<Vec<_>>();
-        // TODO: Get rid of this clone.
-        discs.sort_by_key(|x| x.0.clone());
+        discs.sort_by(|a, b| a.0.cmp(&b.0));
         let discs = discs
             .into_iter()
             .map(|(_, v)| Disc::from_tracks(v))
