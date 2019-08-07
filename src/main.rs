@@ -64,70 +64,67 @@ fn main() {
         dry_run,
     } = Opt::from_args();
 
+    fn foreach_track<'a, F, E>(
+        album: &'a Album,
+        msg: &str,
+        func: F,
+    ) -> Result<(), Vec<(Track<'a>, E)>>
+    where
+        F: Fn(&Track<'a>) -> Result<(), E> + Send + Sync,
+        E: Send + Sync,
+    {
+        let tracks = album.tracks().collect::<Vec<_>>();
+        let bar = ProgressBar::new(tracks.len() as u64);
+        bar.set_message(msg);
+
+        let errs = tracks
+            .into_par_iter()
+            .filter_map(|track| {
+                let res = func(&track);
+                bar.inc(1);
+                res.err().map(|err| (track, err))
+            })
+            .collect::<Vec<_>>();
+
+        bar.finish();
+
+        if !errs.is_empty() {
+            Err(errs)
+        } else {
+            Ok(())
+        }
+    }
+
     match command {
         Command::Update => {
             let album = Album::load(folder).unwrap();
-            let tracks = album.tracks().collect::<Vec<_>>();
-            let bar = ProgressBar::new(tracks.len() as u64);
-            bar.set_message("Updating tracks...");
-
-            let errs = tracks
-                .par_iter()
-                .filter_map(|track| {
-                    let res = track.update_id3();
-                    bar.inc(1);
-                    res.err().map(|err| (track, err))
-                })
-                .collect::<Vec<_>>();
-
-            bar.finish();
-
-            for (track, err) in errs {
-                println!("\"{}\" - {:?}", track.filename(), err);
+            let errs = foreach_track(&album, "Updating tracks...", |track| track.update_id3());
+            if let Err(errs) = errs {
+                for (track, err) in errs {
+                    println!("\"{}\" - {:?}", track.title(), err);
+                }
             }
         }
         Command::ExportVw { output } => {
             let album = Album::load(folder).unwrap();
-            let tracks = album.tracks().collect::<Vec<_>>();
-            let bar = ProgressBar::new(tracks.len() as u64);
-            bar.set_message("Copying and updating tracks...");
-
-            let errs = tracks
-                .par_iter()
-                .filter_map(|track| {
-                    let res = track.update_id3_vw(&output);
-                    bar.inc(1);
-                    res.err().map(|err| (track, err))
-                })
-                .collect::<Vec<_>>();
-
-            bar.finish();
-
-            for (track, err) in errs {
-                println!("\"{}\" - {:?}", track.filename(), err);
+            let errs = foreach_track(&album, "Copying and updating tracks...", |track| {
+                track.update_id3_vw(&output)
+            });
+            if let Err(errs) = errs {
+                for (track, err) in errs {
+                    println!("\"{}\" - {:?}", track.title(), err);
+                }
             }
         }
         Command::Validate => {
             let album = Album::load(folder).unwrap();
-            let tracks = album.tracks().collect::<Vec<_>>();
-            let bar = ProgressBar::new(tracks.len() as u64);
-            bar.set_message("Validating tracks...");
-
-            let errs = tracks
-                .par_iter()
-                .filter_map(|track| {
-                    let res = track.validate();
-                    bar.inc(1);
-                    res.err().map(|errs| (track, errs))
-                })
-                .collect::<Vec<_>>();
-
-            bar.finish();
-
-            for (track, errs) in errs {
-                println!("\"{}\":", track.filename());
-                for err in errs {
-                    println!("* {:?}", err);
+            let errs = foreach_track(&album, "Validating tracks...", |track| track.validate());
+            if let Err(errs) = errs {
+                for (track, errs) in errs {
+                    println!("\"{}\":", track.filename());
+                    for err in errs {
+                        println!("* {:?}", err);
+                    }
                 }
             }
         }
@@ -139,23 +136,11 @@ fn main() {
         }
         Command::Clear => {
             let album = Album::load(folder).unwrap();
-            let tracks = album.tracks().collect::<Vec<_>>();
-            let bar = ProgressBar::new(tracks.len() as u64);
-            bar.set_message("Clearing tracks...");
-
-            let errs = tracks
-                .par_iter()
-                .filter_map(|track| {
-                    let res = track.clear();
-                    bar.inc(1);
-                    res.err().map(|err| (track, err))
-                })
-                .collect::<Vec<_>>();
-
-            bar.finish();
-
-            for (track, err) in errs {
-                println!("\"{}\" - {:?}", track.filename(), err);
+            let errs = foreach_track(&album, "Clearing tracks...", |track| track.clear());
+            if let Err(errs) = errs {
+                for (track, err) in errs {
+                    println!("\"{}\" - {:?}", track.filename(), err);
+                }
             }
         }
         Command::Rename => {
@@ -171,36 +156,24 @@ fn main() {
             }
 
             // If there were any errors making these, quit with an error.
+            let errs = foreach_track(&album, "Renaming tracks...", |track| {
+                let path = track.path();
+                let can_path = track.canonical_path();
+                if path == can_path {
+                    return Ok(());
+                }
+                if !dry_run {
+                    fs::rename(path, can_path)
+                } else {
+                    Ok(())
+                }
+            });
 
-            let tracks = album.tracks().collect::<Vec<_>>();
-            let bar = ProgressBar::new(tracks.len() as u64);
-            bar.set_message("Clearing tracks...");
-
-            let errs = tracks
-                .par_iter()
-                .map(|track| (track, track.path(), track.canonical_path()))
-                .filter(|(_, path, can_path)| path != can_path)
-                .flat_map(|(track, path, can_path)| {
-                    let res = if !dry_run {
-                        fs::rename(path, can_path)
-                    } else {
-                        println!("{:?} -> {:?}", path, can_path);
-                        Ok(())
-                    };
-
-                    bar.inc(1);
-
-                    res.err().map(|err| (track, err))
-                })
-                .collect::<Vec<_>>();
-
-            bar.finish();
-
-            for (track, err) in errs {
-                println!("\"{}\" - {:?}", track.filename(), err);
+            if let Err(errs) = errs {
+                for (track, err) in errs {
+                    println!("\"{}\" - {:?}", track.filename(), err);
+                }
             }
-
-            // If !errs.is_empty(), quit with an error.
 
             // TODO: Update the album.yaml.
         }
