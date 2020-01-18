@@ -82,8 +82,8 @@ impl Track {
         self
     }
 
-    pub fn with_genre<T: Into<Text>>(mut self, genre: T) -> Self {
-        self.genre = Some(genre.into());
+    pub fn with_genre<T: Into<Option<Text>>>(mut self, genre: T) -> Self {
+        self.genre = genre.into();
         self
     }
 
@@ -105,6 +105,31 @@ impl Track {
     pub fn with_filename<T: Into<Option<String>>>(mut self, filename: T) -> Self {
         self.filename = filename.into();
         self
+    }
+
+    pub fn simplify(&mut self, artists: &[Text], year: Option<usize>, genre: Option<&Text>) {
+        match (&self.filename, self.filename()) {
+            (Some(ref x), Some(ref y)) if x == y => {
+                println!("Removing filename for \"{}\" (original \"{}\")", y, x);
+                self.filename = None;
+            }
+            _ => {}
+        }
+
+        match self.artists() {
+            Some(ref x) if x == &artists => self.artists = None,
+            _ => {}
+        }
+
+        match (&self.year, year) {
+            (Some(ref x), Some(ref y)) if x == y => self.year = None,
+            _ => {}
+        }
+
+        match (&self.genre, genre) {
+            (Some(ref x), Some(ref y)) if &x == y => self.genre = None,
+            _ => {}
+        }
     }
 }
 

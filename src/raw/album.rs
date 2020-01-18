@@ -31,20 +31,34 @@ impl Album {
     pub fn generate<P: AsRef<Path>>(path: P) -> Album {
         use super::track::Track;
         use std::collections::HashMap;
+        use std::fs::File;
+        use std::io::{BufReader, Seek};
         use std::path::PathBuf;
         use walkdir::WalkDir;
 
         struct TrackInfo {
             path: PathBuf,
-            tag: id3::Tag,
+            tag: Option<id3::Tag>,
             disc_name: Option<String>,
         }
 
         let path = path.as_ref();
+        fn ok_or_print<T, E>(res: Result<T, E>) -> Option<T>
+        where
+            E: std::fmt::Debug,
+        {
+            match res {
+                Ok(t) => Some(t),
+                Err(e) => {
+                    println!("{:?}", e);
+                    None
+                }
+            }
+        }
 
         let mut track_infos = WalkDir::new(path)
             .into_iter()
-            .filter_map(|e| e.ok())
+            .filter_map(|e| ok_or_print(e))
             .filter(|d| d.file_type().is_file())
             .filter_map(|d| {
                 let path = d.into_path();
@@ -53,7 +67,25 @@ impl Album {
                     return None;
                 }
 
-                let tag = id3::Tag::read_from_path(&path).ok()?;
+                let tag = id3::Tag::read_from_path(&path).ok();
+                /*
+                let file = ok_or_print(File::open(&path));
+                let tag = file.and_then(|f| {
+                    /*
+                    let mut rdr = BufReader::new(f);
+                    if let Some(tag) = ok_or_print(id3::Tag::read_from(rdr)) {
+                        Some(tag)
+                    } else {
+                        None
+                    }
+                    */
+                    /*
+                    ok_or_print(id3::Tag::read_from(&mut rdr))
+                        .or_else(|| ok_or_print(id3::v1::Tag::read_from(&mut rdr).map(Into::into)))
+                        */
+                });
+                */
+
                 Some(TrackInfo {
                     path,
                     tag,
@@ -70,7 +102,11 @@ impl Album {
             F: Fn(&'a id3::Tag) -> Option<T>,
         {
             let mut occurrences = HashMap::new();
-            for t in track_infos.iter().map(|t| &t.tag).filter_map(get) {
+            for t in track_infos
+                .iter()
+                .filter_map(|t| t.tag.as_ref())
+                .filter_map(get)
+            {
                 *occurrences.entry(t).or_insert(0) += 1;
             }
 
@@ -87,31 +123,46 @@ impl Album {
         }
 
         let title = get_most_often(&track_infos, id3::Tag::album).map(|s| s.to_string());
-        let artist = get_most_often(&track_infos, id3::Tag::album_artist)
+        let artists = vec![get_most_often(&track_infos, id3::Tag::album_artist)
             .or_else(|| get_most_often(&track_infos, id3::Tag::artist))
             .map(|s| s.to_string())
-            .unwrap_or_else(|| String::from(""));
+            .unwrap_or_else(|| String::from(""))
+            .into()];
         let year = get_most_often(&track_infos, |t| t.date_recorded().map(|d| d.year as usize));
         let genre: Option<Text> = get_most_often(&track_infos, id3::Tag::genre).map(Into::into);
 
         let mut discs = HashMap::new();
         for info in track_infos.into_iter() {
-            let title = info
-                .tag
-                .title()
-                .or_else(|| info.path.file_stem().and_then(|o| o.to_str()))
-                .unwrap_or("");
-            let filename = info
-                .path
-                .strip_prefix(path)
-                .ok()
+            let filename = ok_or_print(info.path.strip_prefix(path))
                 .and_then(|o| o.to_str())
                 .map(|s| s.to_string());
-            // TODO: Find out other stuff about track, like artists.
-            let track = Track::new(title).with_filename(filename);
+            let title = info
+                .tag
+                .as_ref()
+                .and_then(|t| t.title())
+                .or_else(|| info.path.file_stem().and_then(|o| o.to_str()))
+                .unwrap_or("");
+            let track_artists = info
+                .tag
+                .as_ref()
+                .and_then(|t| t.artist())
+                .map(|a| vec![Text::new(a)]);
+            let track_year = info
+                .tag
+                .as_ref()
+                .and_then(|t| t.date_recorded())
+                .map(|d| d.year as usize);
+            let track_genre = info.tag.as_ref().and_then(|t| t.genre()).map(Into::into);
+            let track = Track::new(title)
+                .with_filename(filename)
+                .with_artists(track_artists)
+                .with_year(track_year)
+                .with_genre(track_genre);
+
             let disc = info
                 .tag
-                .disc()
+                .as_ref()
+                .and_then(|t| t.disc())
                 .map(|d| d.to_string())
                 .or(info.disc_name)
                 .unwrap_or(String::from("Disc 1"));
@@ -126,7 +177,7 @@ impl Album {
             .collect::<Vec<_>>();
 
         Album::new(title.unwrap_or(String::from("")))
-            .with_artists(vec![artist.into()])
+            .with_artists(artists)
             .with_year(year)
             .with_genre(genre)
             .with_discs(discs)
