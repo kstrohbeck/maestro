@@ -401,310 +401,340 @@ impl std::iter::Sum for Text {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{Cow, Text};
     use matches::assert_matches;
 
-    #[test]
-    fn simple_text_serializes_to_string() {
-        use serde_yaml::Value;
-        let text = Text::new("foo");
-        let yaml = serde_yaml::to_value(&text).unwrap();
-        let expected: Value = "foo".into();
-        assert_eq!(expected, yaml);
-    }
+    mod serde {
+        use super::Text;
 
-    #[test]
-    fn simple_text_is_serde_equal() {
-        let text = Text::new("foo");
-        let new_text: Text = serde_yaml::to_string(&text)
-            .and_then(|s| serde_yaml::from_str(&s))
-            .unwrap();
-        assert_eq!(text, new_text);
-    }
+        mod ser {
+            use super::Text;
 
-    #[test]
-    fn ascii_text_serializes_to_struct() {
-        use serde_yaml::Value;
-        let text = Text::with_ascii("foo", "bar");
-        let yaml = serde_yaml::to_value(&text).unwrap();
-        let mapping = match yaml {
-            Value::Mapping(mapping) => mapping,
-            _ => panic!("yaml wasn't mapping"),
-        };
+            #[test]
+            fn simple_text_serializes_to_string() {
+                use serde_yaml::Value;
+                let text = Text::new("foo");
+                let yaml = serde_yaml::to_value(&text).unwrap();
+                let expected: Value = "foo".into();
+                assert_eq!(expected, yaml);
+            }
+            #[test]
+            fn ascii_text_serializes_to_struct() {
+                use serde_yaml::Value;
+                let text = Text::with_ascii("foo", "bar");
+                let yaml = serde_yaml::to_value(&text).unwrap();
+                let mapping = match yaml {
+                    Value::Mapping(mapping) => mapping,
+                    _ => panic!("yaml wasn't mapping"),
+                };
 
-        let pairs = mapping.into_iter().collect::<Vec<_>>();
-        let expected: Vec<(Value, Value)> = vec![
-            ("text".into(), "foo".into()),
-            ("ascii".into(), "bar".into()),
-        ];
-        assert_eq!(expected, pairs);
-    }
+                let pairs = mapping.into_iter().collect::<Vec<_>>();
+                let expected: Vec<(Value, Value)> = vec![
+                    ("text".into(), "foo".into()),
+                    ("ascii".into(), "bar".into()),
+                ];
+                assert_eq!(expected, pairs);
+            }
+        }
 
-    #[test]
-    fn ascii_text_is_serde_equal() {
-        let text = Text::with_ascii("foo", "bar");
-        let new_text: Text = serde_yaml::to_string(&text)
-            .and_then(|s| serde_yaml::from_str(&s))
-            .unwrap();
-        assert_eq!(text, new_text);
-    }
+        mod de {
+            use super::Text;
 
-    #[test]
-    fn simple_yaml_parses_text() {
-        let text = serde_yaml::from_str("\"foo\"").unwrap();
-        assert_eq!(Text::new("foo"), text);
-    }
+            #[test]
+            fn simple_yaml_parses_text() {
+                let text = serde_yaml::from_str("\"foo\"").unwrap();
+                assert_eq!(Text::new("foo"), text);
+            }
 
-    #[test]
-    fn yaml_with_only_text_parses_text() {
-        let text = serde_yaml::from_str("text: foo").unwrap();
-        assert_eq!(Text::new("foo"), text);
-    }
+            #[test]
+            fn yaml_with_only_text_parses_text() {
+                let text = serde_yaml::from_str("text: foo").unwrap();
+                assert_eq!(Text::new("foo"), text);
+            }
 
-    #[test]
-    fn yaml_with_text_and_ascii_parses_both() {
-        let text = serde_yaml::from_str(
-            "
+            #[test]
+            fn yaml_with_text_and_ascii_parses_both() {
+                let text = serde_yaml::from_str(
+                    "
             text: foo
             ascii: bar
             ",
-        )
-        .unwrap();
-        assert_eq!(Text::with_ascii("foo", "bar"), text);
+                )
+                .unwrap();
+                assert_eq!(Text::with_ascii("foo", "bar"), text);
+            }
+
+            #[test]
+            fn yaml_non_string_or_hash_doesnt_parse() {
+                let text = serde_yaml::from_str::<Text>("[]");
+                assert!(text.is_err());
+            }
+
+            #[test]
+            fn yaml_hash_without_text_doesnt_parse() {
+                let text = serde_yaml::from_str::<Text>("ascii: bar");
+                assert!(text.is_err());
+            }
+        }
+
+        #[test]
+        fn simple_text_is_serde_equal() {
+            let text = Text::new("foo");
+            let new_text: Text = serde_yaml::to_string(&text)
+                .and_then(|s| serde_yaml::from_str(&s))
+                .unwrap();
+            assert_eq!(text, new_text);
+        }
+        #[test]
+        fn ascii_text_is_serde_equal() {
+            let text = Text::with_ascii("foo", "bar");
+            let new_text: Text = serde_yaml::to_string(&text)
+                .and_then(|s| serde_yaml::from_str(&s))
+                .unwrap();
+            assert_eq!(text, new_text);
+        }
     }
 
-    #[test]
-    fn yaml_non_string_or_hash_doesnt_parse() {
-        let text = serde_yaml::from_str::<Text>("[]");
-        assert!(text.is_err());
+    mod ascii {
+        use super::{assert_matches, Cow, Text};
+
+        #[test]
+        fn is_same_as_text() {
+            let text = Text::new("hello");
+            assert_eq!(text.ascii(), "hello");
+        }
+
+        #[test]
+        fn is_overridden_value() {
+            let text = Text::with_ascii("hello", "goodbye");
+            assert_eq!(text.ascii(), "goodbye");
+        }
+
+        #[test]
+        fn translates_punctuation() {
+            let text = Text::new("Let’s");
+            assert_eq!(text.ascii(), "Let's");
+        }
+
+        #[test]
+        fn translates_accented_characters() {
+            let text = Text::new("héllo");
+            assert_eq!(text.ascii(), "hello");
+        }
+
+        #[test]
+        fn removes_nonascii_characters() {
+            let text = Text::new("fire = 🔥");
+            assert_eq!(text.ascii(), "fire = ");
+        }
+
+        #[test]
+        fn is_borrowed_text() {
+            let text = Text::new("hello");
+            assert_matches!(text.ascii(), Cow::Borrowed(_));
+        }
+
+        #[test]
+        fn is_borrowed_if_overridden() {
+            let text = Text::with_ascii("hello", "goodbye");
+            assert_matches!(text.ascii(), Cow::Borrowed(_));
+        }
+
+        #[test]
+        fn is_owned_for_nonascii_text() {
+            let text = Text::new("fire = 🔥");
+            assert_matches!(text.ascii(), Cow::Owned(_));
+        }
     }
 
-    #[test]
-    fn yaml_hash_without_text_doesnt_parse() {
-        let text = serde_yaml::from_str::<Text>("ascii: bar");
-        assert!(text.is_err());
+    mod file_safe {
+        use super::{assert_matches, Cow, Text};
+
+        #[test]
+        fn is_ascii_if_no_unsafe_chars() {
+            let text = Text::with_ascii("foo", "bar");
+            assert_eq!(text.file_safe(), "bar");
+        }
+
+        #[test]
+        fn replaces_unsafe_chars() {
+            let text = Text::new("foo: <bar>?");
+            assert_eq!(text.file_safe(), "foo - [bar]");
+        }
+
+        #[test]
+        fn is_borrowed_if_text_is_safe() {
+            let text = Text::new("foo");
+            assert_matches!(text.file_safe(), Cow::Borrowed(_));
+        }
+
+        #[test]
+        fn is_owned_if_text_isnt_ascii() {
+            let text = Text::new("fire = 🔥");
+            assert_matches!(text.file_safe(), Cow::Owned(_));
+        }
+
+        #[test]
+        fn is_owned_if_text_isnt_safe() {
+            let text = Text::new("foo?");
+            assert_matches!(text.file_safe(), Cow::Owned(_));
+        }
+
+        #[test]
+        fn borrowed_if_overridden_ascii_is_safe() {
+            let text = Text::with_ascii("foo", "bar");
+            assert_matches!(text.file_safe(), Cow::Borrowed(_));
+        }
+
+        #[test]
+        fn is_owned_if_overridden_ascii_isnt_safe() {
+            let text = Text::with_ascii("foo", "bar?");
+            assert_matches!(text.file_safe(), Cow::Owned(_));
+        }
     }
 
-    #[test]
-    fn ascii_is_same_as_text() {
-        let text = Text::new("hello");
-        assert_eq!(text.ascii(), "hello");
+    mod sortable_file_safe {
+        use super::{assert_matches, Cow, Text};
+
+        #[test]
+        fn is_same_as_file_safe_without_article() {
+            let text = Text::with_ascii("foo", "\"bar\"");
+            assert_eq!(text.sortable_file_safe(), "'bar'");
+        }
+
+        #[test]
+        fn moves_article_to_end() {
+            let text = Text::with_ascii("foo", "the \"bar\"");
+            assert_eq!(text.sortable_file_safe(), "'bar', the");
+        }
+
+        #[test]
+        fn preserves_casing() {
+            let text = Text::new("A Song Title");
+            assert_eq!(text.sortable_file_safe(), "Song Title, A");
+        }
+
+        #[test]
+        fn is_borrowed_with_unmodified_text() {
+            let text = Text::new("foo");
+            assert_matches!(text.sortable_file_safe(), Cow::Borrowed(_));
+        }
+
+        #[test]
+        fn is_owned_with_nonascii_text() {
+            let text = Text::new("fire = 🔥");
+            assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
+        }
+
+        #[test]
+        fn is_owned_with_non_file_safe_text() {
+            let text = Text::new("foo?");
+            assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
+        }
+
+        #[test]
+        fn is_owned_with_modified_text() {
+            let text = Text::new("A Song Title");
+            assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
+        }
+
+        #[test]
+        fn is_borrowed_with_unmodified_ascii() {
+            let text = Text::with_ascii("foo", "bar");
+            assert_matches!(text.sortable_file_safe(), Cow::Borrowed(_));
+        }
+
+        #[test]
+        fn is_owned_with_non_safe_ascii() {
+            let text = Text::with_ascii("foo", "bar?");
+            assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
+        }
+
+        #[test]
+        fn is_owned_with_modified_ascii() {
+            let text = Text::with_ascii("foo", "the bar");
+            assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
+        }
     }
 
-    #[test]
-    fn ascii_is_overridden_value() {
-        let text = Text::with_ascii("hello", "goodbye");
-        assert_eq!(text.ascii(), "goodbye");
+    mod add {
+        use super::Text;
+
+        #[test]
+        fn texts_add_together() {
+            let (a, b) = (Text::new("hello"), Text::new("world"));
+            assert_eq!(a + b, Text::new("helloworld"));
+            let (a, b) = (Text::new("hello"), Text::new("world"));
+            assert_eq!(a + &b, Text::new("helloworld"));
+            let (a, b) = (Text::new("hello"), Text::new("world"));
+            assert_eq!(&a + b, Text::new("helloworld"));
+            let (a, b) = (Text::new("hello"), Text::new("world"));
+            assert_eq!(&a + &b, Text::new("helloworld"));
+        }
+
+        macro_rules! add_tests {
+            ($a:ident, $b:ident, $exp:expr) => {
+                let (x, y) = ($a.clone(), $b.clone());
+                assert_eq!($exp, x + y);
+                let (x, y) = ($a.clone(), $b.clone());
+                assert_eq!($exp, x + &y);
+                let (x, y) = ($a.clone(), $b.clone());
+                assert_eq!($exp, &x + y);
+                let (x, y) = ($a.clone(), $b.clone());
+                assert_eq!($exp, &x + &y);
+            };
+        }
+
+        #[test]
+        fn first_asciis_add_together() {
+            let (a, b) = (Text::with_ascii("hello", "goodbye"), Text::new("world"));
+            add_tests!(a, b, Text::with_ascii("helloworld", "goodbyeworld"));
+        }
+
+        #[test]
+        fn add_second_asciis_add_together() {
+            let (a, b) = (Text::new("hello"), Text::with_ascii("world", "universe"));
+            add_tests!(a, b, Text::with_ascii("helloworld", "hellouniverse"));
+        }
+
+        #[test]
+        fn text_adds_to_itself() {
+            let mut a = Text::new("hello");
+            a += &Text::new("world");
+            assert_eq!(a, Text::new("helloworld"));
+        }
+
+        #[test]
+        fn ascii_adds_to_itself() {
+            let mut a = Text::new("hello");
+            a += &Text::with_ascii("world", "universe");
+            assert_eq!(a, Text::with_ascii("helloworld", "hellouniverse"));
+        }
+
+        #[test]
+        fn text_adds_to_existing_ascii() {
+            let mut a = Text::with_ascii("hello", "goodbye");
+            a += &Text::with_ascii("world", "universe");
+            assert_eq!(a, Text::with_ascii("helloworld", "goodbyeuniverse"));
+        }
     }
 
-    #[test]
-    fn ascii_translates_punctuation() {
-        let text = Text::new("Let’s");
-        assert_eq!(text.ascii(), "Let's");
-    }
+    mod sum {
+        use super::Text;
 
-    #[test]
-    fn ascii_translates_accented_characters() {
-        let text = Text::new("héllo");
-        assert_eq!(text.ascii(), "hello");
-    }
+        #[test]
+        fn texts_sum_together() {
+            let texts = vec![Text::new("hello"), Text::new("world")];
+            assert_eq!(texts.into_iter().sum::<Text>(), Text::new("helloworld"));
+        }
 
-    #[test]
-    fn ascii_removes_nonascii_characters() {
-        let text = Text::new("fire = 🔥");
-        assert_eq!(text.ascii(), "fire = ");
-    }
-
-    #[test]
-    fn ascii_is_borrowed_text() {
-        let text = Text::new("hello");
-        assert_matches!(text.ascii(), Cow::Borrowed(_));
-    }
-
-    #[test]
-    fn ascii_is_borrowed_if_overridden() {
-        let text = Text::with_ascii("hello", "goodbye");
-        assert_matches!(text.ascii(), Cow::Borrowed(_));
-    }
-
-    #[test]
-    fn ascii_is_owned_for_nonascii_text() {
-        let text = Text::new("fire = 🔥");
-        assert_matches!(text.ascii(), Cow::Owned(_));
-    }
-
-    #[test]
-    fn file_safe_is_ascii_if_no_unsafe_chars() {
-        let text = Text::with_ascii("foo", "bar");
-        assert_eq!(text.file_safe(), "bar");
-    }
-
-    #[test]
-    fn file_safe_replaces_unsafe_chars() {
-        let text = Text::new("foo: <bar>?");
-        assert_eq!(text.file_safe(), "foo - [bar]");
-    }
-
-    #[test]
-    fn file_safe_is_borrowed_if_text_is_safe() {
-        let text = Text::new("foo");
-        assert_matches!(text.file_safe(), Cow::Borrowed(_));
-    }
-
-    #[test]
-    fn file_safe_is_owned_if_text_isnt_ascii() {
-        let text = Text::new("fire = 🔥");
-        assert_matches!(text.file_safe(), Cow::Owned(_));
-    }
-
-    #[test]
-    fn file_safe_is_owned_if_text_isnt_safe() {
-        let text = Text::new("foo?");
-        assert_matches!(text.file_safe(), Cow::Owned(_));
-    }
-
-    #[test]
-    fn file_safe_is_borrowed_if_overridden_ascii_is_safe() {
-        let text = Text::with_ascii("foo", "bar");
-        assert_matches!(text.file_safe(), Cow::Borrowed(_));
-    }
-
-    #[test]
-    fn file_safe_is_owned_if_overridden_ascii_isnt_safe() {
-        let text = Text::with_ascii("foo", "bar?");
-        assert_matches!(text.file_safe(), Cow::Owned(_));
-    }
-
-    #[test]
-    fn sortable_file_safe_is_same_as_file_safe_without_article() {
-        let text = Text::with_ascii("foo", "\"bar\"");
-        assert_eq!(text.sortable_file_safe(), "'bar'");
-    }
-
-    #[test]
-    fn sortable_file_safe_moves_article_to_end() {
-        let text = Text::with_ascii("foo", "the \"bar\"");
-        assert_eq!(text.sortable_file_safe(), "'bar', the");
-    }
-
-    #[test]
-    fn sortable_file_safe_preserves_casing() {
-        let text = Text::new("A Song Title");
-        assert_eq!(text.sortable_file_safe(), "Song Title, A");
-    }
-
-    #[test]
-    fn sortable_file_safe_is_borrowed_with_unmodified_text() {
-        let text = Text::new("foo");
-        assert_matches!(text.sortable_file_safe(), Cow::Borrowed(_));
-    }
-
-    #[test]
-    fn sortable_file_safe_is_owned_with_nonascii_text() {
-        let text = Text::new("fire = 🔥");
-        assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
-    }
-
-    #[test]
-    fn sortable_file_safe_is_owned_with_non_file_safe_text() {
-        let text = Text::new("foo?");
-        assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
-    }
-
-    #[test]
-    fn sortable_file_safe_is_owned_with_modified_text() {
-        let text = Text::new("A Song Title");
-        assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
-    }
-
-    #[test]
-    fn sortable_file_safe_is_borrowed_with_unmodified_ascii() {
-        let text = Text::with_ascii("foo", "bar");
-        assert_matches!(text.sortable_file_safe(), Cow::Borrowed(_));
-    }
-
-    #[test]
-    fn sortable_file_safe_is_owned_with_non_safe_ascii() {
-        let text = Text::with_ascii("foo", "bar?");
-        assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
-    }
-
-    #[test]
-    fn sortable_file_safe_is_owned_with_modified_ascii() {
-        let text = Text::with_ascii("foo", "the bar");
-        assert_matches!(text.sortable_file_safe(), Cow::Owned(_));
-    }
-
-    #[test]
-    fn texts_add_text_together() {
-        let (a, b) = (Text::new("hello"), Text::new("world"));
-        assert_eq!(a + b, Text::new("helloworld"));
-        let (a, b) = (Text::new("hello"), Text::new("world"));
-        assert_eq!(a + &b, Text::new("helloworld"));
-        let (a, b) = (Text::new("hello"), Text::new("world"));
-        assert_eq!(&a + b, Text::new("helloworld"));
-        let (a, b) = (Text::new("hello"), Text::new("world"));
-        assert_eq!(&a + &b, Text::new("helloworld"));
-    }
-
-    macro_rules! add_tests {
-        ($a:ident, $b:ident, $exp:expr) => {
-            let (x, y) = ($a.clone(), $b.clone());
-            assert_eq!($exp, x + y);
-            let (x, y) = ($a.clone(), $b.clone());
-            assert_eq!($exp, x + &y);
-            let (x, y) = ($a.clone(), $b.clone());
-            assert_eq!($exp, &x + y);
-            let (x, y) = ($a.clone(), $b.clone());
-            assert_eq!($exp, &x + &y);
-        };
-    }
-
-    #[test]
-    fn texts_add_first_asciis_together() {
-        let (a, b) = (Text::with_ascii("hello", "goodbye"), Text::new("world"));
-        add_tests!(a, b, Text::with_ascii("helloworld", "goodbyeworld"));
-    }
-
-    #[test]
-    fn texts_add_second_asciis_together() {
-        let (a, b) = (Text::new("hello"), Text::with_ascii("world", "universe"));
-        add_tests!(a, b, Text::with_ascii("helloworld", "hellouniverse"));
-    }
-
-    #[test]
-    fn text_adds_text_to_itself() {
-        let mut a = Text::new("hello");
-        a += &Text::new("world");
-        assert_eq!(a, Text::new("helloworld"));
-    }
-
-    #[test]
-    fn text_adds_ascii_to_itself() {
-        let mut a = Text::new("hello");
-        a += &Text::with_ascii("world", "universe");
-        assert_eq!(a, Text::with_ascii("helloworld", "hellouniverse"));
-    }
-
-    #[test]
-    fn text_adds_to_existing_ascii() {
-        let mut a = Text::with_ascii("hello", "goodbye");
-        a += &Text::with_ascii("world", "universe");
-        assert_eq!(a, Text::with_ascii("helloworld", "goodbyeuniverse"));
-    }
-
-    #[test]
-    fn texts_sum_text_together() {
-        let texts = vec![Text::new("hello"), Text::new("world")];
-        assert_eq!(texts.into_iter().sum::<Text>(), Text::new("helloworld"));
-    }
-
-    #[test]
-    fn texts_sum_asciis_together() {
-        let texts = vec![Text::new("hello"), Text::with_ascii("world", "universe")];
-        assert_eq!(
-            texts.into_iter().sum::<Text>(),
-            Text::with_ascii("helloworld", "hellouniverse")
-        );
+        #[test]
+        fn asciis_sum_together() {
+            let texts = vec![Text::new("hello"), Text::with_ascii("world", "universe")];
+            assert_eq!(
+                texts.into_iter().sum::<Text>(),
+                Text::with_ascii("helloworld", "hellouniverse")
+            );
+        }
     }
 }
