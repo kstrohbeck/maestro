@@ -476,23 +476,96 @@ impl<'a, 'b> Add<&'a Text> for &'b Text {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quickcheck::{Arbitrary, Gen};
+    use quickcheck::{Arbitrary, Gen, TestResult};
+    use quickcheck_macros::quickcheck;
 
     impl Arbitrary for Text {
         fn arbitrary<G: Gen>(g: &mut G) -> Self {
-            let text = String::arbitrary(g);
-            if bool::arbitrary(g) {
-                Text::from_string(text)
-            } else {
-                let ascii = String::arbitrary(g);
-                Text::new(text, Some(ascii))
+            fn arbitrary_filtered_ascii_string<F, G: Gen>(g: &mut G, f: F) -> String
+            where
+                F: Fn(&char) -> bool,
+            {
+                Vec::<u8>::arbitrary(g)
+                    .into_iter()
+                    .map(Into::<char>::into)
+                    .filter(f)
+                    .collect()
             }
+
+            /// Generate a string containing only alphanumeric & space ASCII characters.
+            fn arbitrary_file_safe_string<G: Gen>(g: &mut G) -> String {
+                arbitrary_filtered_ascii_string(g, |c| c.is_alphanumeric() || *c == ' ')
+            }
+
+            /// Generate a string containing only ASCII characters.
+            fn arbitrary_ascii_string<G: Gen>(g: &mut G) -> String {
+                arbitrary_filtered_ascii_string(g, |_| true)
+            }
+
+            let value = match u8::arbitrary(g) % 3 {
+                0 => arbitrary_file_safe_string(g),
+                1 => arbitrary_ascii_string(g),
+                2 => String::arbitrary(g),
+                _ => unreachable!(),
+            };
+
+            let ascii = match u8::arbitrary(g) % 3 {
+                0 => Some(arbitrary_file_safe_string(g)),
+                1 => Some(arbitrary_ascii_string(g)),
+                2 => None,
+                _ => unreachable!(),
+            };
+
+            Text::new(value, ascii)
         }
+
+        // TODO: Implement a better shrinking strategy.
+    }
+
+    #[quickcheck]
+    fn ascii_is_different_than_value_if_calculated(a: Text) -> TestResult {
+        if !matches!(a.ascii, Ascii::Different { is_overridden: false, ..}) {
+            return TestResult::discard();
+        }
+        TestResult::from_bool(a.value() != a.ascii())
+    }
+
+    #[quickcheck]
+    fn file_safe_is_different_than_ascii_if_set(a: Text) -> TestResult {
+        if a.file_safe.is_none() {
+            return TestResult::discard();
+        }
+        TestResult::from_bool(a.ascii() != a.file_safe())
+    }
+
+    #[quickcheck]
+    fn ascii_has_only_ascii_chars(a: Text) -> bool {
+        a.ascii().is_ascii()
+    }
+
+    #[quickcheck]
+    fn file_safe_has_only_ascii_chars(a: Text) -> bool {
+        a.file_safe().is_ascii()
+    }
+
+    #[quickcheck]
+    fn ascii_is_different_than_value_if_it_is_nonascii(a: Text) -> TestResult {
+        if a.value().is_ascii() {
+            return TestResult::discard();
+        }
+        TestResult::from_bool(a.value() != a.ascii())
+    }
+
+    #[quickcheck]
+    fn ascii_is_same_as_value_if_ascii_and_nonoverridden(a: Text) -> TestResult {
+        if !a.value().is_ascii() || a.has_overridden_ascii() {
+            return TestResult::discard();
+        }
+        TestResult::from_bool(a.value() == a.ascii())
     }
 
     mod add {
         use super::*;
-        use quickcheck_macros::quickcheck;
 
         #[quickcheck]
         fn empty_is_left_identity(a: Text) -> bool {
@@ -525,7 +598,7 @@ mod tests {
         }
 
         #[quickcheck]
-        fn addition_adds_values(a: Text, b: Text) -> bool {
+        fn values_are_added(a: Text, b: Text) -> bool {
             (&a + &b).value() == format!("{}{}", a.value(), b.value())
         }
 
@@ -537,6 +610,40 @@ mod tests {
         #[quickcheck]
         fn file_safe_reprs_are_added(a: Text, b: Text) -> bool {
             (&a + &b).file_safe() == format!("{}{}", a.file_safe(), b.file_safe())
+        }
+
+        #[quickcheck]
+        fn ascii_difference_is_left_absorbing(a: Text, b: Text) -> TestResult {
+            if !(a.value() != a.ascii()) {
+                return TestResult::discard();
+            }
+            let res = a + b;
+            TestResult::from_bool(res.value() != res.ascii())
+        }
+
+        #[quickcheck]
+        fn ascii_difference_is_right_absorbing(a: Text, b: Text) -> TestResult {
+            if !(a.value() != a.ascii()) {
+                return TestResult::discard();
+            }
+            let res = b + a;
+            TestResult::from_bool(res.value() != res.ascii())
+        }
+
+        #[quickcheck]
+        fn override_is_left_absorbing(a: Text, b: Text) -> TestResult {
+            if !a.has_overridden_ascii() {
+                return TestResult::discard();
+            }
+            TestResult::from_bool((a + b).has_overridden_ascii())
+        }
+
+        #[quickcheck]
+        fn override_is_right_absorbing(a: Text, b: Text) -> TestResult {
+            if !a.has_overridden_ascii() {
+                return TestResult::discard();
+            }
+            TestResult::from_bool((b + a).has_overridden_ascii())
         }
     }
 }
