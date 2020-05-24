@@ -1,401 +1,408 @@
 //! Functions for handling text that can have both full, ASCII, and file-safe representations.
+use std::borrow::Cow;
 
-use serde::{de, ser, Deserialize, Serialize};
-use std::{
-    borrow::Cow,
-    fmt,
-    ops::{Add, AddAssign},
-};
-use unicode_normalization::UnicodeNormalization;
+pub use old_impl::Text;
 
-/// A piece of text with an overridable ASCII representation.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Text {
-    text: String,
-    ascii: Option<String>,
-}
+mod new_impl;
 
-fn str_to_ascii(s: &str) -> Cow<str> {
-    if s.is_ascii() {
-        return s.into();
+mod old_impl {
+    use super::Cow;
+    use serde::{de, ser, Deserialize, Serialize};
+    use std::{
+        fmt,
+        ops::{Add, AddAssign},
+    };
+    use unicode_normalization::UnicodeNormalization;
+
+    /// A piece of text with an overridable ASCII representation.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct Text {
+        text: String,
+        ascii: Option<String>,
     }
 
-    // Decompose unicode characters to handle accents.
-    s.nfkd()
-        .filter_map(|c| {
-            // Map non-ascii characters to their equivalents.
-            if c.is_ascii() {
-                Some(c)
-            } else if c == '’' || c == '‘' {
-                Some('\'')
-            } else {
-                None
-            }
-        })
-        .collect::<String>()
-        .into()
-}
-
-impl Text {
-    /// Create a new `Text`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use songmaster_rs::text::Text;
-    /// let text = Text::new("foo");
-    /// assert_eq!("foo", text.text());
-    /// assert_eq!("foo", text.ascii());
-    /// ```
-    pub fn new<T>(text: T) -> Text
-    where
-        T: Into<String>,
-    {
-        Text {
-            text: text.into(),
-            ascii: None,
+    fn str_to_ascii(s: &str) -> Cow<str> {
+        if s.is_ascii() {
+            return s.into();
         }
+
+        // Decompose unicode characters to handle accents.
+        s.nfkd()
+            .filter_map(|c| {
+                // Map non-ascii characters to their equivalents.
+                if c.is_ascii() {
+                    Some(c)
+                } else if c == '’' || c == '‘' {
+                    Some('\'')
+                } else {
+                    None
+                }
+            })
+            .collect::<String>()
+            .into()
     }
 
-    /// Create a new `Text` with overridden ASCII.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use songmaster_rs::text::Text;
-    /// let text = Text::with_ascii("foo", "bar");
-    /// assert_eq!("foo", text.text());
-    /// assert_eq!("bar", text.ascii());
-    /// ```
-    pub fn with_ascii<T, U>(text: T, ascii: U) -> Text
-    where
-        T: Into<String>,
-        U: Into<String>,
-    {
-        Text {
-            text: text.into(),
-            ascii: Some(ascii.into()),
-        }
-    }
-
-    /// Get the text value of a `Text`.
-    pub fn text(&self) -> &str {
-        &self.text
-    }
-
-    /// Get the ascii value of a `Text`.
-    ///
-    /// If the ascii has been overridden, this returns that value. Otherwise, it returns the text
-    /// with any non-ASCII characters replaced with '?'.
-    pub fn ascii(&self) -> Cow<str> {
-        if let Some(asc) = &self.ascii {
-            return asc.into();
-        }
-        str_to_ascii(self.text())
-    }
-
-    /// Returns if this `Text` has an overridden `ascii` value.
-    pub fn has_ascii(&self) -> bool {
-        self.ascii.is_some()
-    }
-
-    /// Get a version of the `Text` safe to use in filenames.
-    ///
-    /// The file safe name is the ASCII content of the `Text`, minus characters that aren't usable
-    /// in one or more operating system filenames. These characters are replaced with file safe
-    /// variants.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use songmaster_rs::text::Text;
-    /// let text = Text::new("foo: <bar>?");
-    /// assert_eq!("foo - [bar]", text.file_safe());
-    /// ```
-    pub fn file_safe(&self) -> Cow<str> {
-        let ascii = self.ascii();
-        if !ascii.contains(&['<', '>', ':', '"', '/', '|', '~', '\\', '*', '?'][..]) {
-            return ascii;
-        }
-        let mut buf = String::new();
-        for c in ascii.chars() {
-            match c {
-                '<' => buf.push('['),
-                '>' => buf.push(']'),
-                ':' => buf.push_str(" -"),
-                '"' => buf.push('\''),
-                '/' | '|' | '~' => buf.push('-'),
-                '\\' | '*' => buf.push('_'),
-                '?' => {}
-                _ => buf.push(c),
+    impl Text {
+        /// Create a new `Text`.
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # use songmaster_rs::text::Text;
+        /// let text = Text::new("foo");
+        /// assert_eq!("foo", text.text());
+        /// assert_eq!("foo", text.ascii());
+        /// ```
+        pub fn new<T>(text: T) -> Text
+        where
+            T: Into<String>,
+        {
+            Text {
+                text: text.into(),
+                ascii: None,
             }
         }
-        buf.into()
-    }
 
-    /// Get a version of the `Text` safe to use in filenames that can be alphabetically sorted.
-    ///
-    /// This is the same as the results of `file_safe`, except that it allows the text to be
-    /// sorted alphabetically - articles at the beginning of the text are moved to the end.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use songmaster_rs::text::Text;
-    /// let text = Text::new("The Title of Something");
-    /// assert_eq!("Title of Something, The", text.sortable_file_safe());
-    /// ```
-    pub fn sortable_file_safe(&self) -> Cow<str> {
-        use lazy_static::lazy_static;
-        use regex::Regex;
-
-        lazy_static! {
-            static ref RE: Regex =
-                Regex::new(r"^(?i)(?P<article>the|an|a)\s(?P<rest>.*)$").unwrap();
-        }
-        let file_safe = self.file_safe();
-        match RE.captures(&file_safe) {
-            None => file_safe,
-            Some(caps) => {
-                let article = caps.name("article").unwrap().as_str();
-                let rest = caps.name("rest").unwrap().as_str();
-                format!("{}, {}", rest, article).into()
+        /// Create a new `Text` with overridden ASCII.
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # use songmaster_rs::text::Text;
+        /// let text = Text::with_ascii("foo", "bar");
+        /// assert_eq!("foo", text.text());
+        /// assert_eq!("bar", text.ascii());
+        /// ```
+        pub fn with_ascii<T, U>(text: T, ascii: U) -> Text
+        where
+            T: Into<String>,
+            U: Into<String>,
+        {
+            Text {
+                text: text.into(),
+                ascii: Some(ascii.into()),
             }
         }
-    }
-}
 
-impl Default for Text {
-    fn default() -> Self {
-        Text::new("")
-    }
-}
+        /// Get the text value of a `Text`.
+        pub fn text(&self) -> &str {
+            &self.text
+        }
 
-impl Serialize for Text {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: ser::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-
-        match self.ascii {
-            Some(ref ascii) => {
-                let mut state = serializer.serialize_struct("Text", 2)?;
-                state.serialize_field("text", &self.text)?;
-                state.serialize_field("ascii", ascii)?;
-                state.end()
+        /// Get the ascii value of a `Text`.
+        ///
+        /// If the ascii has been overridden, this returns that value. Otherwise, it returns the text
+        /// with any non-ASCII characters replaced with '?'.
+        pub fn ascii(&self) -> Cow<str> {
+            if let Some(asc) = &self.ascii {
+                return asc.into();
             }
-            None => serializer.serialize_str(&self.text),
+            str_to_ascii(self.text())
+        }
+
+        /// Returns if this `Text` has an overridden `ascii` value.
+        pub fn has_ascii(&self) -> bool {
+            self.ascii.is_some()
+        }
+
+        /// Get a version of the `Text` safe to use in filenames.
+        ///
+        /// The file safe name is the ASCII content of the `Text`, minus characters that aren't usable
+        /// in one or more operating system filenames. These characters are replaced with file safe
+        /// variants.
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # use songmaster_rs::text::Text;
+        /// let text = Text::new("foo: <bar>?");
+        /// assert_eq!("foo - [bar]", text.file_safe());
+        /// ```
+        pub fn file_safe(&self) -> Cow<str> {
+            let ascii = self.ascii();
+            if !ascii.contains(&['<', '>', ':', '"', '/', '|', '~', '\\', '*', '?'][..]) {
+                return ascii;
+            }
+            let mut buf = String::new();
+            for c in ascii.chars() {
+                match c {
+                    '<' => buf.push('['),
+                    '>' => buf.push(']'),
+                    ':' => buf.push_str(" -"),
+                    '"' => buf.push('\''),
+                    '/' | '|' | '~' => buf.push('-'),
+                    '\\' | '*' => buf.push('_'),
+                    '?' => {}
+                    _ => buf.push(c),
+                }
+            }
+            buf.into()
+        }
+
+        /// Get a version of the `Text` safe to use in filenames that can be alphabetically sorted.
+        ///
+        /// This is the same as the results of `file_safe`, except that it allows the text to be
+        /// sorted alphabetically - articles at the beginning of the text are moved to the end.
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # use songmaster_rs::text::Text;
+        /// let text = Text::new("The Title of Something");
+        /// assert_eq!("Title of Something, The", text.sortable_file_safe());
+        /// ```
+        pub fn sortable_file_safe(&self) -> Cow<str> {
+            use lazy_static::lazy_static;
+            use regex::Regex;
+
+            lazy_static! {
+                static ref RE: Regex =
+                    Regex::new(r"^(?i)(?P<article>the|an|a)\s(?P<rest>.*)$").unwrap();
+            }
+            let file_safe = self.file_safe();
+            match RE.captures(&file_safe) {
+                None => file_safe,
+                Some(caps) => {
+                    let article = caps.name("article").unwrap().as_str();
+                    let rest = caps.name("rest").unwrap().as_str();
+                    format!("{}, {}", rest, article).into()
+                }
+            }
         }
     }
-}
 
-impl<'de> Deserialize<'de> for Text {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: de::Deserializer<'de>,
-    {
-        struct Visitor;
+    impl Default for Text {
+        fn default() -> Self {
+            Text::new("")
+        }
+    }
 
-        impl<'de> de::Visitor<'de> for Visitor {
-            type Value = Text;
+    impl Serialize for Text {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: ser::Serializer,
+        {
+            use serde::ser::SerializeStruct;
 
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                f.write_str("a text definition")
+            match self.ascii {
+                Some(ref ascii) => {
+                    let mut state = serializer.serialize_struct("Text", 2)?;
+                    state.serialize_field("text", &self.text)?;
+                    state.serialize_field("ascii", ascii)?;
+                    state.end()
+                }
+                None => serializer.serialize_str(&self.text),
             }
+        }
+    }
 
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                Ok(Text::new(value))
-            }
+    impl<'de> Deserialize<'de> for Text {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: de::Deserializer<'de>,
+        {
+            struct Visitor;
 
-            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
-            where
-                M: de::MapAccess<'de>,
-            {
-                #[derive(Deserialize)]
-                #[serde(field_identifier, rename_all = "lowercase")]
-                enum Fields {
-                    Text,
-                    Ascii,
+            impl<'de> de::Visitor<'de> for Visitor {
+                type Value = Text;
+
+                fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                    f.write_str("a text definition")
                 }
 
-                let mut text = None;
-                let mut ascii = None;
+                fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+                where
+                    E: de::Error,
+                {
+                    Ok(Text::new(value))
+                }
 
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Fields::Text => field!(map, text),
-                        Fields::Ascii => field!(map, ascii),
+                fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+                where
+                    M: de::MapAccess<'de>,
+                {
+                    #[derive(Deserialize)]
+                    #[serde(field_identifier, rename_all = "lowercase")]
+                    enum Fields {
+                        Text,
+                        Ascii,
                     }
+
+                    let mut text = None;
+                    let mut ascii = None;
+
+                    while let Some(key) = map.next_key()? {
+                        match key {
+                            Fields::Text => field!(map, text),
+                            Fields::Ascii => field!(map, ascii),
+                        }
+                    }
+
+                    let text = text.ok_or_else(|| de::Error::missing_field("text"))?;
+                    Ok(Text { text, ascii })
                 }
-
-                let text = text.ok_or_else(|| de::Error::missing_field("text"))?;
-                Ok(Text { text, ascii })
             }
+
+            deserializer.deserialize_any(Visitor)
         }
-
-        deserializer.deserialize_any(Visitor)
     }
-}
 
-impl Add for Text {
-    type Output = Text;
+    impl Add for Text {
+        type Output = Text;
 
-    fn add(self, other: Self) -> Self::Output {
-        let ascii = match (self.ascii, other.ascii) {
-            (None, None) => None,
-            (None, Some(mut ascii)) => {
-                ascii.insert_str(0, &str_to_ascii(&self.text));
-                Some(ascii)
-            }
-            (Some(mut ascii), None) => {
-                ascii.push_str(&str_to_ascii(&other.text));
-                Some(ascii)
-            }
-            (Some(mut ascii), Some(other)) => {
-                ascii.push_str(&other);
-                Some(ascii)
-            }
-        };
+        fn add(self, other: Self) -> Self::Output {
+            let ascii = match (self.ascii, other.ascii) {
+                (None, None) => None,
+                (None, Some(mut ascii)) => {
+                    ascii.insert_str(0, &str_to_ascii(&self.text));
+                    Some(ascii)
+                }
+                (Some(mut ascii), None) => {
+                    ascii.push_str(&str_to_ascii(&other.text));
+                    Some(ascii)
+                }
+                (Some(mut ascii), Some(other)) => {
+                    ascii.push_str(&other);
+                    Some(ascii)
+                }
+            };
 
-        let mut text = self.text;
-        text.push_str(&other.text);
+            let mut text = self.text;
+            text.push_str(&other.text);
 
-        Text { text, ascii }
-    }
-}
-
-impl Add<&Text> for Text {
-    type Output = Text;
-
-    fn add(self, other: &Self) -> Self::Output {
-        let ascii = match (self.ascii, other.ascii.as_ref()) {
-            (None, None) => None,
-            (None, Some(other)) => {
-                let mut ascii = str_to_ascii(&self.text).into_owned();
-                ascii.push_str(other);
-                Some(ascii)
-            }
-            (Some(mut ascii), None) => {
-                ascii.push_str(&str_to_ascii(&other.text));
-                Some(ascii)
-            }
-            (Some(mut ascii), Some(other)) => {
-                ascii.push_str(&other);
-                Some(ascii)
-            }
-        };
-
-        let mut text = self.text;
-        text.push_str(&other.text);
-
-        Text { text, ascii }
-    }
-}
-
-impl Add<Text> for &Text {
-    type Output = Text;
-
-    fn add(self, other: Text) -> Self::Output {
-        let ascii = match (self.ascii.as_ref(), other.ascii) {
-            (None, None) => None,
-            (None, Some(mut ascii)) => {
-                ascii.insert_str(0, &str_to_ascii(&self.text));
-                Some(ascii)
-            }
-            (Some(ascii), None) => {
-                let mut ascii = ascii.clone();
-                ascii.push_str(&str_to_ascii(&other.text));
-                Some(ascii)
-            }
-            (Some(ascii), Some(mut other)) => {
-                other.insert_str(0, ascii);
-                Some(other)
-            }
-        };
-
-        let mut text = other.text;
-        text.insert_str(0, &self.text);
-
-        Text { text, ascii }
-    }
-}
-
-impl<'a, 'b> Add<&'b Text> for &'a Text {
-    type Output = Text;
-
-    fn add(self, other: &'b Text) -> Self::Output {
-        let ascii = match (self.ascii.as_ref(), other.ascii.as_ref()) {
-            (None, None) => None,
-            (None, Some(other)) => {
-                let mut ascii = str_to_ascii(&self.text).into_owned();
-                ascii.push_str(other);
-                Some(ascii)
-            }
-            (Some(ascii), None) => {
-                let mut ascii = ascii.clone();
-                ascii.push_str(&str_to_ascii(&other.text));
-                Some(ascii)
-            }
-            (Some(ascii), Some(other)) => {
-                let mut ascii = ascii.clone();
-                ascii.push_str(&other);
-                Some(ascii)
-            }
-        };
-
-        let mut text = self.text.clone();
-        text.push_str(&other.text);
-
-        Text { text, ascii }
-    }
-}
-
-impl AddAssign for Text {
-    fn add_assign(&mut self, other: Self) {
-        <Self as AddAssign<&Text>>::add_assign(self, &other);
-    }
-}
-
-impl AddAssign<&Text> for Text {
-    fn add_assign(&mut self, other: &Self) {
-        if let Some(ref mut ascii) = &mut self.ascii {
-            ascii.push_str(&other.ascii());
-        } else if let Some(ref ascii) = &other.ascii {
-            self.ascii = Some(self.ascii().into_owned() + ascii);
+            Text { text, ascii }
         }
-
-        self.text.push_str(&other.text);
     }
-}
 
-impl fmt::Display for Text {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.text)
+    impl Add<&Text> for Text {
+        type Output = Text;
+
+        fn add(self, other: &Self) -> Self::Output {
+            let ascii = match (self.ascii, other.ascii.as_ref()) {
+                (None, None) => None,
+                (None, Some(other)) => {
+                    let mut ascii = str_to_ascii(&self.text).into_owned();
+                    ascii.push_str(other);
+                    Some(ascii)
+                }
+                (Some(mut ascii), None) => {
+                    ascii.push_str(&str_to_ascii(&other.text));
+                    Some(ascii)
+                }
+                (Some(mut ascii), Some(other)) => {
+                    ascii.push_str(&other);
+                    Some(ascii)
+                }
+            };
+
+            let mut text = self.text;
+            text.push_str(&other.text);
+
+            Text { text, ascii }
+        }
     }
-}
 
-impl<'a> From<&'a str> for Text {
-    fn from(text: &'a str) -> Text {
-        Text::new(text)
+    impl Add<Text> for &Text {
+        type Output = Text;
+
+        fn add(self, other: Text) -> Self::Output {
+            let ascii = match (self.ascii.as_ref(), other.ascii) {
+                (None, None) => None,
+                (None, Some(mut ascii)) => {
+                    ascii.insert_str(0, &str_to_ascii(&self.text));
+                    Some(ascii)
+                }
+                (Some(ascii), None) => {
+                    let mut ascii = ascii.clone();
+                    ascii.push_str(&str_to_ascii(&other.text));
+                    Some(ascii)
+                }
+                (Some(ascii), Some(mut other)) => {
+                    other.insert_str(0, ascii);
+                    Some(other)
+                }
+            };
+
+            let mut text = other.text;
+            text.insert_str(0, &self.text);
+
+            Text { text, ascii }
+        }
     }
-}
 
-impl From<String> for Text {
-    fn from(text: String) -> Text {
-        Text::new(text)
+    impl<'a, 'b> Add<&'b Text> for &'a Text {
+        type Output = Text;
+
+        fn add(self, other: &'b Text) -> Self::Output {
+            let ascii = match (self.ascii.as_ref(), other.ascii.as_ref()) {
+                (None, None) => None,
+                (None, Some(other)) => {
+                    let mut ascii = str_to_ascii(&self.text).into_owned();
+                    ascii.push_str(other);
+                    Some(ascii)
+                }
+                (Some(ascii), None) => {
+                    let mut ascii = ascii.clone();
+                    ascii.push_str(&str_to_ascii(&other.text));
+                    Some(ascii)
+                }
+                (Some(ascii), Some(other)) => {
+                    let mut ascii = ascii.clone();
+                    ascii.push_str(&other);
+                    Some(ascii)
+                }
+            };
+
+            let mut text = self.text.clone();
+            text.push_str(&other.text);
+
+            Text { text, ascii }
+        }
     }
-}
 
-impl std::iter::Sum for Text {
-    fn sum<I>(iter: I) -> Self
-    where
-        I: Iterator<Item = Self>,
-    {
-        iter.fold(Text::new(""), |a, b| a + b)
+    impl AddAssign for Text {
+        fn add_assign(&mut self, other: Self) {
+            <Self as AddAssign<&Text>>::add_assign(self, &other);
+        }
+    }
+
+    impl AddAssign<&Text> for Text {
+        fn add_assign(&mut self, other: &Self) {
+            if let Some(ref mut ascii) = &mut self.ascii {
+                ascii.push_str(&other.ascii());
+            } else if let Some(ref ascii) = &other.ascii {
+                self.ascii = Some(self.ascii().into_owned() + ascii);
+            }
+
+            self.text.push_str(&other.text);
+        }
+    }
+
+    impl fmt::Display for Text {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{}", self.text)
+        }
+    }
+
+    impl<'a> From<&'a str> for Text {
+        fn from(text: &'a str) -> Text {
+            Text::new(text)
+        }
+    }
+
+    impl From<String> for Text {
+        fn from(text: String) -> Text {
+            Text::new(text)
+        }
+    }
+
+    impl std::iter::Sum for Text {
+        fn sum<I>(iter: I) -> Self
+        where
+            I: Iterator<Item = Self>,
+        {
+            iter.fold(Text::new(""), |a, b| a + b)
+        }
     }
 }
 
