@@ -479,39 +479,69 @@ mod tests {
     use quickcheck::{Arbitrary, Gen, TestResult};
     use quickcheck_macros::quickcheck;
 
+    #[derive(Debug, Clone)]
+    struct AsciiString(String);
+
+    impl From<String> for AsciiString {
+        fn from(s: String) -> Self {
+            Self(s)
+        }
+    }
+
+    impl Arbitrary for AsciiString {
+        fn arbitrary<G: Gen>(g: &mut G) -> Self {
+            Vec::<u8>::arbitrary(g)
+                .into_iter()
+                .map(Into::<char>::into)
+                .collect::<String>()
+                .into()
+        }
+    }
+
+    impl From<AsciiString> for String {
+        fn from(s: AsciiString) -> Self {
+            s.0
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct FileSafeString(String);
+
+    impl From<String> for FileSafeString {
+        fn from(s: String) -> Self {
+            Self(s)
+        }
+    }
+
+    impl Arbitrary for FileSafeString {
+        fn arbitrary<G: Gen>(g: &mut G) -> Self {
+            Vec::<u8>::arbitrary(g)
+                .into_iter()
+                .map(Into::<char>::into)
+                .filter(|c| c.is_alphanumeric() || *c == ' ')
+                .collect::<String>()
+                .into()
+        }
+    }
+
+    impl From<FileSafeString> for String {
+        fn from(s: FileSafeString) -> Self {
+            s.0
+        }
+    }
+
     impl Arbitrary for Text {
         fn arbitrary<G: Gen>(g: &mut G) -> Self {
-            fn arbitrary_filtered_ascii_string<F, G: Gen>(g: &mut G, f: F) -> String
-            where
-                F: Fn(&char) -> bool,
-            {
-                Vec::<u8>::arbitrary(g)
-                    .into_iter()
-                    .map(Into::<char>::into)
-                    .filter(f)
-                    .collect()
-            }
-
-            /// Generate a string containing only alphanumeric & space ASCII characters.
-            fn arbitrary_file_safe_string<G: Gen>(g: &mut G) -> String {
-                arbitrary_filtered_ascii_string(g, |c| c.is_alphanumeric() || *c == ' ')
-            }
-
-            /// Generate a string containing only ASCII characters.
-            fn arbitrary_ascii_string<G: Gen>(g: &mut G) -> String {
-                arbitrary_filtered_ascii_string(g, |_| true)
-            }
-
             let value = match u8::arbitrary(g) % 3 {
-                0 => arbitrary_file_safe_string(g),
-                1 => arbitrary_ascii_string(g),
+                0 => FileSafeString::arbitrary(g).into(),
+                1 => AsciiString::arbitrary(g).into(),
                 2 => String::arbitrary(g),
                 _ => unreachable!(),
             };
 
-            let ascii = match u8::arbitrary(g) % 3 {
-                0 => Some(arbitrary_file_safe_string(g)),
-                1 => Some(arbitrary_ascii_string(g)),
+            let ascii: Option<String> = match u8::arbitrary(g) % 3 {
+                0 => Some(FileSafeString::arbitrary(g).into()),
+                1 => Some(AsciiString::arbitrary(g).into()),
                 2 => None,
                 _ => unreachable!(),
             };
@@ -522,46 +552,99 @@ mod tests {
         // TODO: Implement a better shrinking strategy.
     }
 
-    #[quickcheck]
-    fn ascii_is_different_than_value_if_calculated(a: Text) -> TestResult {
-        if !matches!(a.ascii, Ascii::Different { is_overridden: false, ..}) {
-            return TestResult::discard();
+    mod value {
+        use super::*;
+
+        #[quickcheck]
+        fn is_the_value_passed_to_from_string(a: String) -> bool {
+            Text::from_string(a.clone()).value() == a
         }
-        TestResult::from_bool(a.value() != a.ascii())
-    }
 
-    #[quickcheck]
-    fn file_safe_is_different_than_ascii_if_set(a: Text) -> TestResult {
-        if a.file_safe.is_none() {
-            return TestResult::discard();
+        #[quickcheck]
+        fn is_the_value_passed_to_new_without_ascii(a: String) -> bool {
+            Text::new::<_, &str>(a.clone(), None).value() == a
         }
-        TestResult::from_bool(a.ascii() != a.file_safe())
-    }
 
-    #[quickcheck]
-    fn ascii_has_only_ascii_chars(a: Text) -> bool {
-        a.ascii().is_ascii()
-    }
-
-    #[quickcheck]
-    fn file_safe_has_only_ascii_chars(a: Text) -> bool {
-        a.file_safe().is_ascii()
-    }
-
-    #[quickcheck]
-    fn ascii_is_different_than_value_if_it_is_nonascii(a: Text) -> TestResult {
-        if a.value().is_ascii() {
-            return TestResult::discard();
+        #[quickcheck]
+        fn is_the_value_passed_to_new_with_ascii(a: String, b: String) -> bool {
+            Text::new(a.clone(), Some(b)).value() == a
         }
-        TestResult::from_bool(a.value() != a.ascii())
     }
 
-    #[quickcheck]
-    fn ascii_is_same_as_value_if_ascii_and_nonoverridden(a: Text) -> TestResult {
-        if !a.value().is_ascii() || a.has_overridden_ascii() {
-            return TestResult::discard();
+    mod ascii {
+        use super::*;
+
+        #[test]
+        fn is_value_with_nonascii_removed_if_calculated() {
+            let text = Text::from_string("bók");
+            assert_eq!(text.ascii(), "bok");
         }
-        TestResult::from_bool(a.value() == a.ascii())
+
+        #[quickcheck]
+        fn is_the_value_passed_to_new_if_overridden(a: String, b: AsciiString) -> TestResult {
+            let b: String = b.into();
+            TestResult::from_bool(Text::new(a, Some(b.clone())).ascii() == b)
+        }
+
+        #[quickcheck]
+        fn has_only_ascii_chars(a: Text) -> bool {
+            a.ascii().is_ascii()
+        }
+
+        #[quickcheck]
+        fn is_same_as_value_if_ascii_and_nonoverridden(a: Text) -> TestResult {
+            if !a.value().is_ascii() || a.has_overridden_ascii() {
+                return TestResult::discard();
+            }
+            TestResult::from_bool(a.value() == a.ascii())
+        }
+
+        #[quickcheck]
+        fn is_different_than_value_if_calculated(a: Text) -> TestResult {
+            if !matches!(a.ascii, Ascii::Different { is_overridden: false, ..}) {
+                return TestResult::discard();
+            }
+            TestResult::from_bool(a.value() != a.ascii())
+        }
+
+        #[quickcheck]
+        fn is_different_than_value_if_it_is_nonascii(a: Text) -> TestResult {
+            if a.value().is_ascii() {
+                return TestResult::discard();
+            }
+            TestResult::from_bool(a.value() != a.ascii())
+        }
+    }
+
+    mod file_safe {
+        use super::*;
+
+        #[quickcheck]
+        fn has_only_ascii_chars(a: Text) -> bool {
+            a.file_safe().is_ascii()
+        }
+
+        #[quickcheck]
+        fn doesnt_contain_non_file_safe_chars(a: Text) -> bool {
+            !a.file_safe()
+                .contains(&['<', '>', ':', '"', '/', '|', '~', '\\', '*', '?'][..])
+        }
+
+        #[quickcheck]
+        fn is_same_as_ascii_if_not_set(a: Text) -> TestResult {
+            if a.file_safe.is_some() {
+                return TestResult::discard();
+            }
+            TestResult::from_bool(a.ascii() == a.file_safe())
+        }
+
+        #[quickcheck]
+        fn is_different_than_ascii_if_set(a: Text) -> TestResult {
+            if a.file_safe.is_none() {
+                return TestResult::discard();
+            }
+            TestResult::from_bool(a.ascii() != a.file_safe())
+        }
     }
 
     mod add {
@@ -578,7 +661,7 @@ mod tests {
         }
 
         #[quickcheck]
-        fn addition_is_associative(a: Text, b: Text, c: Text) -> bool {
+        fn is_associative(a: Text, b: Text, c: Text) -> bool {
             (&a + &b) + &c == a + (b + c)
         }
 
