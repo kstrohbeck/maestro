@@ -44,6 +44,22 @@ macro_rules! for_value {
 }
 
 impl Ascii {
+    /// Returns an ASCII for the value that's overridden.
+    fn overridden(value: Cow<'static, str>) -> Self {
+        Self::Different {
+            value,
+            is_overridden: true,
+        }
+    }
+
+    /// Returns an ASCII for the value that isn't overridden.
+    fn calculated(value: String) -> Self {
+        Self::Different {
+            value: value.into(),
+            is_overridden: false,
+        }
+    }
+
     /// Return the inner ASCII string if it is different than the value.
     fn inner(&self) -> Option<&str> {
         match self {
@@ -188,20 +204,14 @@ impl Text {
         let ascii: Option<Cow<str>> = ascii.map(Into::into);
 
         let ascii = if let Some(ovr) = ascii {
-            Ascii::Different {
-                value: calculate_ascii(&ovr)
-                    .map(Into::into)
-                    .unwrap_or_else(|| ovr.into()),
-                is_overridden: true,
-            }
+            let value = calculate_ascii(&ovr)
+                .map(Into::into)
+                .unwrap_or_else(|| ovr.into());
+            Ascii::overridden(value)
+        } else if let Some(value) = calculate_ascii(&value) {
+            Ascii::calculated(value)
         } else {
-            match calculate_ascii(&value) {
-                Some(value) => Ascii::Different {
-                    value: value.into(),
-                    is_overridden: false,
-                },
-                None => Ascii::Same,
-            }
+            Ascii::Same
         };
 
         let ascii_for_value = ascii.for_value(&value);
