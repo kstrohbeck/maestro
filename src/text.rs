@@ -293,7 +293,7 @@ impl Text {
     /// ```rust
     /// # use songmaster::Text;
     /// let text = Text::from_string("bók?");
-    /// assert_eq!("bok", text.ascii());
+    /// assert_eq!("bok", text.file_safe());
     /// ```
     pub fn file_safe(&self) -> &str {
         self.file_safe
