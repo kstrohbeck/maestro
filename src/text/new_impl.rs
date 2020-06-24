@@ -1,3 +1,4 @@
+use serde::{de, ser, Deserialize, Serialize};
 use std::borrow::Cow;
 use std::ops::Add;
 
@@ -483,6 +484,80 @@ impl<'a, 'b> Add<&'a Text> for &'b Text {
     }
 }
 
+impl Serialize for Text {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        use ser::SerializeStruct;
+
+        match &self.ascii {
+            Ascii::Different {
+                value,
+                is_overridden: true,
+            } => {
+                let mut state = serializer.serialize_struct("Text", 2)?;
+                state.serialize_field("text", &self.value)?;
+                state.serialize_field("ascii", &value)?;
+                state.end()
+            }
+            _ => serializer.serialize_str(&self.value),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Text {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        use std::fmt;
+        struct Visitor;
+
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = Text;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a text definition")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Text::from_string(value.to_string()))
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: de::MapAccess<'de>,
+            {
+                #[derive(Deserialize)]
+                #[serde(field_identifier, rename_all = "lowercase")]
+                enum Fields {
+                    Text,
+                    Ascii,
+                }
+
+                let mut text: Option<String> = None;
+                let mut ascii: Option<String> = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Fields::Text => field!(map, text),
+                        Fields::Ascii => field!(map, ascii),
+                    }
+                }
+
+                let text = text.ok_or_else(|| de::Error::missing_field("text"))?;
+                Ok(Text::new(text, ascii))
+            }
+        }
+
+        deserializer.deserialize_any(Visitor)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -737,6 +812,98 @@ mod tests {
                 return TestResult::discard();
             }
             TestResult::from_bool((b + a).has_overridden_ascii())
+        }
+    }
+
+    mod serde {
+        use super::*;
+
+        #[test]
+        fn simple_text_is_serde_equal() {
+            let text = Text::from_string("foo");
+            let new_text: Text = serde_yaml::to_string(&text)
+                .and_then(|s| serde_yaml::from_str(&s))
+                .unwrap();
+            assert_eq!(text, new_text);
+        }
+
+        #[test]
+        fn ascii_text_is_serde_equal() {
+            let text = Text::new("foo", Some("bar"));
+            let new_text: Text = serde_yaml::to_string(&text)
+                .and_then(|s| serde_yaml::from_str(&s))
+                .unwrap();
+            assert_eq!(text, new_text);
+        }
+    }
+
+    mod ser {
+        use super::*;
+
+        #[test]
+        fn simple_text_serializes_to_string() {
+            use serde_yaml::Value;
+            let text = Text::from_string("foo");
+            let yaml = serde_yaml::to_value(&text).unwrap();
+            let expected: Value = "foo".into();
+            assert_eq!(expected, yaml);
+        }
+
+        #[test]
+        fn overridden_ascii_text_serializes_to_struct() {
+            use serde_yaml::Value;
+            let text = Text::new("foo", Some("bar"));
+            let yaml = serde_yaml::to_value(&text).unwrap();
+            let mapping = match yaml {
+                Value::Mapping(mapping) => mapping,
+                _ => panic!("yaml wasn't a mapping"),
+            };
+            let pairs = mapping.into_iter().collect::<Vec<_>>();
+            let expected: Vec<(Value, Value)> = vec![
+                ("text".into(), "foo".into()),
+                ("ascii".into(), "bar".into()),
+            ];
+            assert_eq!(expected, pairs);
+        }
+    }
+
+    mod de {
+        use super::*;
+
+        #[test]
+        fn simple_yaml_parses_text() {
+            let text = serde_yaml::from_str("\"foo\"").unwrap();
+            assert_eq!(Text::from_string("foo"), text);
+        }
+
+        #[test]
+        fn yaml_with_only_text_parses_text() {
+            let text = serde_yaml::from_str("text: foo").unwrap();
+            assert_eq!(Text::from_string("foo"), text);
+        }
+
+        #[test]
+        fn yaml_with_text_and_ascii_parses_both() {
+            let text = serde_yaml::from_str(
+                "
+                text: foo
+                ascii: bar
+                ",
+            )
+            .unwrap();
+            assert_eq!(Text::new("foo", Some("bar")), text);
+        }
+
+        #[test]
+        fn yaml_non_string_or_hash_doesnt_parse() {
+            let text = serde_yaml::from_str::<Text>("[]");
+            assert!(text.is_err());
+        }
+
+        #[test]
+        fn yaml_hash_without_text_doesnt_parse() {
+            let text = serde_yaml::from_str::<Text>("ascii: bar");
+            assert!(text.is_err());
         }
     }
 }
