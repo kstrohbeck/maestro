@@ -5,8 +5,8 @@ authors = ["Kyle Strohbeck <kstrohbeck@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-id3 = "0.3.0"
-image = "0.21"
+id3 = "0.5.1"
+image = "0.23.6"
 indicatif = "0.11.0"
 lazy_static = "1.2"
 once_cell = "0.2.3"

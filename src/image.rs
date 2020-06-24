@@ -46,8 +46,8 @@ impl TryFrom<image::ImageFormat> for Format {
 
     fn try_from(format: image::ImageFormat) -> Result<Self, Self::Error> {
         match format {
-            image::ImageFormat::PNG => Ok(Format::Png),
-            image::ImageFormat::JPEG => Ok(Format::Jpeg),
+            image::ImageFormat::Png => Ok(Format::Png),
+            image::ImageFormat::Jpeg => Ok(Format::Jpeg),
             _ => Err(FormatError { format }),
         }
     }
@@ -192,8 +192,8 @@ impl Image {
     /// Create a savable image from the data.
     pub fn as_dynamic(&self) -> image::ImageResult<DynamicImage> {
         let format = match self.format {
-            Format::Png => image::ImageFormat::PNG,
-            Format::Jpeg => image::ImageFormat::JPEG,
+            Format::Png => image::ImageFormat::Png,
+            Format::Jpeg => image::ImageFormat::Jpeg,
         };
         image::load_from_memory_with_format(self.data(), format)
     }
@@ -281,7 +281,7 @@ macro_rules! encode {
                 $img,
                 $img.width(),
                 $img.height(),
-                <image::Rgb<u8> as image::Pixel>::color_type(),
+                <image::Rgb<u8> as image::Pixel>::COLOR_TYPE,
             )
             .map(|()| data)
     }};
@@ -294,7 +294,9 @@ macro_rules! encode {
 pub fn transform_image(img: DynamicImage) -> Result<Image, image::ImageError> {
     use image::{jpeg::JPEGEncoder, png::PNGEncoder};
 
-    let img = img.resize(1000, 1000, image::FilterType::Lanczos3).to_rgb();
+    let img = img
+        .resize(1000, 1000, image::imageops::FilterType::Lanczos3)
+        .to_rgb();
 
     // Try both PNG and JPEG encoding.
     let png_data = encode!(PNGEncoder, &img)?;
@@ -311,7 +313,9 @@ pub fn transform_image(img: DynamicImage) -> Result<Image, image::ImageError> {
 pub fn transform_image_vw(img: DynamicImage) -> Result<Image, image::ImageError> {
     use image::jpeg::JPEGEncoder;
 
-    let img = img.resize(300, 300, image::FilterType::Lanczos3).to_rgb();
+    let img = img
+        .resize(300, 300, image::imageops::FilterType::Lanczos3)
+        .to_rgb();
     let data = encode!(JPEGEncoder, &img)?;
     Ok(Image::from_jpeg(data))
 }
