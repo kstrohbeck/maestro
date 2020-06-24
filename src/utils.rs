@@ -33,8 +33,8 @@ pub fn comma_separated(text: &[Text]) -> Cow<Text> {
     if text.len() == 1 {
         Cow::Borrowed(&text[0])
     } else {
-        let mut res = Text::new("");
-        let sep = Text::new(", ");
+        let mut res = Text::from_string("");
+        let sep = Text::from_string(", ");
         for (i, t) in text.iter().enumerate() {
             if i != 0 {
                 res += &sep;
@@ -75,23 +75,26 @@ mod tests {
     #[test]
     fn comma_separated_empty_vec_is_empty() {
         let text = &[];
-        assert_eq!(Cow::Owned::<Text>(Text::new("")), comma_separated(text));
+        assert_eq!(
+            Cow::Owned::<Text>(Text::from_string("")),
+            comma_separated(text)
+        );
     }
 
     #[test]
     fn comma_separated_single_is_same() {
-        let text = &[Text::with_ascii("foo", "bar")];
+        let text = &[Text::new("foo", Some("bar"))];
         assert_eq!(
-            Cow::Borrowed(&Text::with_ascii("foo", "bar")),
+            Cow::Borrowed(&Text::new("foo", Some("bar"))),
             comma_separated(text)
         );
     }
 
     #[test]
     fn comma_separated_double_is_correct() {
-        let text = &[Text::with_ascii("foo", "bar"), Text::new("baz")];
+        let text = &[Text::new("foo", Some("bar")), Text::from_string("baz")];
         assert_eq!(
-            Cow::Owned::<Text>(Text::with_ascii("foo, baz", "bar, baz")),
+            Cow::Owned::<Text>(Text::new("foo, baz", Some("bar, baz"))),
             comma_separated(text),
         );
     }
@@ -99,12 +102,12 @@ mod tests {
     #[test]
     fn comma_separated_triple_is_correct() {
         let text = &[
-            Text::with_ascii("foo", "bar"),
-            Text::new("baz"),
-            Text::with_ascii("quux", "other"),
+            Text::new("foo", Some("bar")),
+            Text::from_string("baz"),
+            Text::new("quux", Some("other")),
         ];
         assert_eq!(
-            Cow::Owned::<Text>(Text::with_ascii("foo, baz, quux", "bar, baz, other")),
+            Cow::Owned::<Text>(Text::new("foo, baz, quux", Some("bar, baz, other"))),
             comma_separated(text),
         );
     }

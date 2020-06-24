@@ -196,7 +196,7 @@ impl<'a> Track<'a> {
         push_err! {
             match tag.title() {
                 None => Some(ValidateError::MissingFrame("title")),
-                Some(title) if title != self.title().text() => {
+                Some(title) if title != self.title().value() => {
                     Some(ValidateError::IncorrectDataInFrame("title", title.to_string()))
                 }
                 _ => None,
@@ -206,7 +206,7 @@ impl<'a> Track<'a> {
         push_err! {
             match (
                 !self.artists().is_empty(),
-                self.artist().text(),
+                self.artist().value(),
                 tag.artist(),
             ) {
                 (false, _, Some(_)) => Some(ValidateError::UnexpectedFrame("artist")),
@@ -232,7 +232,7 @@ impl<'a> Track<'a> {
             match (self.album_artist(), tag.album_artist()) {
                 (Some(_), None) => Some(ValidateError::MissingFrame("album artist")),
                 (None, Some(_)) => Some(ValidateError::UnexpectedFrame("album artist")),
-                (Some(ref a), Some(b)) if a.text() != b => {
+                (Some(ref a), Some(b)) if a.value() != b => {
                     Some(ValidateError::IncorrectDataInFrame("album artist", b.to_string()))
                 }
                 _ => None,
@@ -257,7 +257,7 @@ impl<'a> Track<'a> {
         push_err! {
             match tag.album() {
                 None => Some(ValidateError::MissingFrame("album")),
-                Some(album) if album != self.album().title().text() => {
+                Some(album) if album != self.album().title().value() => {
                     Some(ValidateError::IncorrectDataInFrame("album", album.to_string()))
                 }
                 _ => None,
@@ -277,7 +277,7 @@ impl<'a> Track<'a> {
         }
 
         push_err! {
-            match (self.genre().map(Text::text), tag.genre()) {
+            match (self.genre().map(Text::value), tag.genre()) {
                 (None, Some(_)) => Some(ValidateError::UnexpectedFrame("genre")),
                 (Some(_), None) => Some(ValidateError::MissingFrame("genre")),
                 (Some(a), Some(b)) if a != b => {
@@ -372,30 +372,30 @@ impl<'a> Track<'a> {
 
         let mut tag = Tag::new();
 
-        tag.set_title(self.title().text());
+        tag.set_title(self.title().value());
 
         if !self.artists().is_empty() {
-            tag.set_artist(self.artist().text());
+            tag.set_artist(self.artist().value());
         }
 
         tag.set_track(self.track_number as u32);
 
         if let Some(album_artist) = self.album_artist() {
-            tag.set_album_artist(album_artist.text());
+            tag.set_album_artist(album_artist.value());
         }
 
         if !self.disc().is_only_disc() {
             tag.set_disc(self.disc().disc_number as u32);
         }
 
-        tag.set_album(self.album().title().text());
+        tag.set_album(self.album().title().value());
 
         if let Some(date_recorded) = self.id3_date_recorded() {
             tag.set_date_recorded(date_recorded);
         }
 
         if let Some(genre) = self.genre() {
-            tag.set_genre(genre.text());
+            tag.set_genre(genre.value());
         }
 
         if let Some(comment) = self.id3_comment() {
@@ -493,7 +493,7 @@ impl<'a> Track<'a> {
         self.comment().map(|comment| id3::frame::Comment {
             lang: "eng".to_string(),
             description: "".to_string(),
-            text: comment.text().to_string(),
+            text: comment.value().to_string(),
         })
     }
 
@@ -502,7 +502,7 @@ impl<'a> Track<'a> {
         self.lyrics().map(|lyrics| id3::frame::Lyrics {
             lang: "eng".to_string(),
             description: "".to_string(),
-            text: lyrics.text().to_string(),
+            text: lyrics.value().to_string(),
         })
     }
 
@@ -552,13 +552,13 @@ mod tests {
     #[test]
     fn artists_are_inherited_from_album() {
         let album = raw::Album::new("foo")
-            .with_artists(vec![Text::new("a"), Text::with_ascii("b", "c")])
+            .with_artists(vec![Text::from_string("a"), Text::new("b", Some("c"))])
             .with_discs(vec![raw::Disc::from_tracks(vec![raw::Track::new("song")])]);
         let album = Album::new(album, PathBuf::from("."));
         let disc = album.disc(1).unwrap();
         let track = disc.track(1).unwrap();
         assert_eq!(
-            &[Text::new("a"), Text::with_ascii("b", "c")],
+            &[Text::from_string("a"), Text::new("b", Some("c"))],
             track.artists()
         );
     }
@@ -566,20 +566,20 @@ mod tests {
     #[test]
     fn artists_are_overridden_by_track() {
         let album = raw::Album::new("foo")
-            .with_artists(vec![Text::new("a"), Text::with_ascii("b", "c")])
+            .with_artists(vec![Text::from_string("a"), Text::new("b", Some("c"))])
             .with_discs(vec![raw::Disc::from_tracks(vec![
-                raw::Track::new("song").with_artists(vec![Text::new("d")])
+                raw::Track::new("song").with_artists(vec![Text::from_string("d")])
             ])]);
         let album = Album::new(album, PathBuf::from("."));
         let disc = album.disc(1).unwrap();
         let track = disc.track(1).unwrap();
-        assert_eq!(&[Text::new("d")], track.artists());
+        assert_eq!(&[Text::from_string("d")], track.artists());
     }
 
     #[test]
     fn no_album_artists_without_override() {
         let album = raw::Album::new("foo")
-            .with_artists(vec![Text::new("a"), Text::with_ascii("b", "c")])
+            .with_artists(vec![Text::from_string("a"), Text::new("b", Some("c"))])
             .with_discs(vec![raw::Disc::from_tracks(vec![raw::Track::new("song")])]);
         let album = Album::new(album, PathBuf::from("."));
         let disc = album.disc(1).unwrap();
@@ -590,15 +590,15 @@ mod tests {
     #[test]
     fn album_artists_are_set_when_overridden() {
         let album = raw::Album::new("foo")
-            .with_artists(vec![Text::new("a"), Text::with_ascii("b", "c")])
+            .with_artists(vec![Text::from_string("a"), Text::new("b", Some("c"))])
             .with_discs(vec![raw::Disc::from_tracks(vec![
-                raw::Track::new("song").with_artists(vec![Text::new("d")])
+                raw::Track::new("song").with_artists(vec![Text::from_string("d")])
             ])]);
         let album = Album::new(album, PathBuf::from("."));
         let disc = album.disc(1).unwrap();
         let track = disc.track(1).unwrap();
         assert_eq!(
-            Some(&[Text::new("a"), Text::with_ascii("b", "c")][..]),
+            Some(&[Text::from_string("a"), Text::new("b", Some("c"))][..]),
             track.album_artists(),
         );
     }

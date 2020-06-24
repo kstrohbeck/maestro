@@ -155,8 +155,8 @@ impl Serialize for Track {
         .count()
             + 1;
 
-        if num_fields == 1 && !self.title.has_ascii() {
-            return serializer.serialize_str(self.title.text());
+        if num_fields == 1 && !self.title.has_overridden_ascii() {
+            return serializer.serialize_str(self.title.value());
         }
 
         let mut state = serializer.serialize_struct("Track", num_fields)?;
@@ -295,13 +295,13 @@ mod tests {
     #[test]
     fn string_is_parsed_to_track_with_title() {
         let track = serde_yaml::from_str::<Track>("\"foo\"").unwrap();
-        assert_eq!(Text::new("foo"), track.title);
+        assert_eq!(Text::from_string("foo"), track.title);
     }
 
     #[test]
     fn simple_title_is_parsed() {
         let track: Track = serde_yaml::from_str("title: foo").unwrap();
-        assert_eq!(Text::new("foo"), track.title);
+        assert_eq!(Text::from_string("foo"), track.title);
     }
 
     #[test]
@@ -314,7 +314,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Text::with_ascii("foo", "bar"), track.title);
+        assert_eq!(Text::new("foo", Some("bar")), track.title);
     }
 
     #[test]
@@ -326,7 +326,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&[Text::new("bar")][..]), track.artists());
+        assert_eq!(Some(&[Text::from_string("bar")][..]), track.artists());
     }
 
     #[test]
@@ -340,7 +340,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&[Text::with_ascii("bar", "baz")][..]), track.artists());
+        assert_eq!(Some(&[Text::new("bar", Some("baz"))][..]), track.artists());
     }
 
     #[test]
@@ -368,7 +368,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            Some(&[Text::new("bar"), Text::new("baz")][..]),
+            Some(&[Text::from_string("bar"), Text::from_string("baz")][..]),
             track.artists(),
         );
     }
@@ -386,7 +386,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            Some(&[Text::new("bar"), Text::with_ascii("baz", "quux")][..]),
+            Some(&[Text::from_string("bar"), Text::new("baz", Some("quux"))][..]),
             track.artists(),
         );
     }
@@ -423,7 +423,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&Text::new("Music")), track.genre());
+        assert_eq!(Some(&Text::from_string("Music")), track.genre());
     }
 
     #[test]
@@ -437,7 +437,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&Text::with_ascii("Music", "Not Music")), track.genre());
+        assert_eq!(Some(&Text::new("Music", Some("Not Music"))), track.genre());
     }
 
     #[test]
@@ -449,7 +449,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&Text::new("stuff")), track.comment());
+        assert_eq!(Some(&Text::from_string("stuff")), track.comment());
     }
 
     #[test]
@@ -463,7 +463,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&Text::with_ascii("stuff", "other")), track.comment());
+        assert_eq!(Some(&Text::new("stuff", Some("other"))), track.comment());
     }
 
     #[test]
@@ -475,7 +475,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&Text::new("stuff")), track.lyrics());
+        assert_eq!(Some(&Text::from_string("stuff")), track.lyrics());
     }
 
     #[test]
@@ -489,7 +489,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&Text::with_ascii("stuff", "other")), track.lyrics());
+        assert_eq!(Some(&Text::new("stuff", Some("other"))), track.lyrics());
     }
 
     #[test]
@@ -501,7 +501,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&[Text::new("bar")][..]), track.featuring());
+        assert_eq!(Some(&[Text::from_string("bar")][..]), track.featuring());
     }
 
     #[test]
@@ -516,7 +516,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            Some(&[Text::with_ascii("bar", "baz")][..]),
+            Some(&[Text::new("bar", Some("baz"))][..]),
             track.featuring()
         );
     }
@@ -533,7 +533,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            Some(&[Text::new("bar"), Text::new("baz")][..]),
+            Some(&[Text::from_string("bar"), Text::from_string("baz")][..]),
             track.featuring()
         );
     }
@@ -551,7 +551,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            Some(&[Text::with_ascii("bar", "baz"), Text::new("quux")][..]),
+            Some(&[Text::new("bar", Some("baz")), Text::from_string("quux")][..]),
             track.featuring()
         );
     }

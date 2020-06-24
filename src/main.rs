@@ -101,7 +101,7 @@ fn main() {
             let errs = foreach_track(&album, "Updating tracks...", |track| track.update_id3());
             if let Err(errs) = errs {
                 for (track, err) in errs {
-                    println!("\"{}\" - {:?}", track.title(), err);
+                    println!("\"{}\" - {:?}", track.title().value(), err);
                 }
             }
         }
@@ -112,7 +112,7 @@ fn main() {
             });
             if let Err(errs) = errs {
                 for (track, err) in errs {
-                    println!("\"{}\" - {:?}", track.title(), err);
+                    println!("\"{}\" - {:?}", track.title().value(), err);
                 }
             }
         }

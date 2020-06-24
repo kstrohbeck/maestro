@@ -146,7 +146,7 @@ impl Album {
                 .tag
                 .as_ref()
                 .and_then(|t| t.artist())
-                .map(|a| vec![Text::new(a)]);
+                .map(|a| vec![Text::from_string(a.to_string())]);
             let track_year = info
                 .tag
                 .as_ref()
@@ -333,17 +333,17 @@ mod tests {
 
     #[test]
     fn artist_is_only_artist_in_list() {
-        let album = Album::new("foo").with_artists(vec![Text::with_ascii("b", "c")]);
-        assert_eq!(Cow::Borrowed(&Text::with_ascii("b", "c")), album.artist());
+        let album = Album::new("foo").with_artists(vec![Text::new("b", Some("c"))]);
+        assert_eq!(Cow::Borrowed(&Text::new("b", Some("c"))), album.artist());
     }
 
     #[test]
     fn artist_is_comma_separated_if_multiple() {
         let album =
-            Album::new("foo").with_artists(vec![Text::new("a"), Text::with_ascii("b", "c")]);
+            Album::new("foo").with_artists(vec![Text::from_string("a"), Text::new("b", Some("c"))]);
 
         assert_eq!(
-            Cow::<Text>::Owned(Text::with_ascii("a, b", "a, c")),
+            Cow::<Text>::Owned(Text::new("a, b", Some("a, c"))),
             album.artist()
         );
     }
@@ -360,6 +360,6 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Text::new("foo"), album.title);
+        assert_eq!(Text::from_string("foo"), album.title);
     }
 }
