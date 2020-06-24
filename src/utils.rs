@@ -6,7 +6,7 @@ use std::borrow::Cow;
 /// # Examples
 ///
 /// ```rust
-/// # use songmaster_rs::utils::num_digits;
+/// # use songmaster::utils::num_digits;
 /// assert_eq!(2, num_digits(12));
 /// assert_eq!(3, num_digits(900));
 /// ```
@@ -25,7 +25,7 @@ pub fn num_digits(mut number: usize) -> usize {
 ///
 /// ```rust
 /// # use std::borrow::Cow;
-/// # use songmaster_rs::{text::Text, utils::comma_separated};
+/// # use songmaster::{text::Text, utils::comma_separated};
 /// let text = [Text::new("foo"), Text::with_ascii("bar", "baar"), Text::new("baz")];
 /// assert_eq!(Cow::Owned::<Text>(Text::with_ascii("foo, bar, baz", "foo, baar, baz")), comma_separated(&text[..]));
 /// ```

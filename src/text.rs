@@ -48,7 +48,7 @@ mod old_impl {
         /// # Examples
         ///
         /// ```rust
-        /// # use songmaster_rs::text::Text;
+        /// # use songmaster::text::Text;
         /// let text = Text::new("foo");
         /// assert_eq!("foo", text.text());
         /// assert_eq!("foo", text.ascii());
@@ -68,7 +68,7 @@ mod old_impl {
         /// # Examples
         ///
         /// ```rust
-        /// # use songmaster_rs::text::Text;
+        /// # use songmaster::text::Text;
         /// let text = Text::with_ascii("foo", "bar");
         /// assert_eq!("foo", text.text());
         /// assert_eq!("bar", text.ascii());
@@ -114,7 +114,7 @@ mod old_impl {
         /// # Examples
         ///
         /// ```rust
-        /// # use songmaster_rs::text::Text;
+        /// # use songmaster::text::Text;
         /// let text = Text::new("foo: <bar>?");
         /// assert_eq!("foo - [bar]", text.file_safe());
         /// ```
@@ -147,7 +147,7 @@ mod old_impl {
         /// # Examples
         ///
         /// ```rust
-        /// # use songmaster_rs::text::Text;
+        /// # use songmaster::text::Text;
         /// let text = Text::new("The Title of Something");
         /// assert_eq!("Title of Something, The", text.sortable_file_safe());
         /// ```

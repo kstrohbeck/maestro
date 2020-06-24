@@ -1,5 +1,5 @@
 [package]
-name = "songmaster-rs"
+name = "songmaster"
 version = "0.1.0"
 authors = ["Kyle Strohbeck <kstrohbeck@gmail.com>"]
 edition = "2018"

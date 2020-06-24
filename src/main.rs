@@ -1,9 +1,9 @@
-extern crate songmaster_rs;
+extern crate songmaster;
 
 use indicatif::ProgressBar;
 use rayon::prelude::*;
-use songmaster_rs::album::{Album, AlbumLoadError};
-use songmaster_rs::track::Track;
+use songmaster::album::{Album, AlbumLoadError};
+use songmaster::track::Track;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
