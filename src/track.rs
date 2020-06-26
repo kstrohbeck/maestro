@@ -552,34 +552,31 @@ mod tests {
     #[test]
     fn artists_are_inherited_from_album() {
         let album = raw::Album::new("foo")
-            .with_artists(vec![Text::from_string("a"), Text::new("b", Some("c"))])
+            .with_artists(vec![Text::from("a"), Text::from(("b", "c"))])
             .with_discs(vec![raw::Disc::from_tracks(vec![raw::Track::new("song")])]);
         let album = Album::new(album, PathBuf::from("."));
         let disc = album.disc(1).unwrap();
         let track = disc.track(1).unwrap();
-        assert_eq!(
-            &[Text::from_string("a"), Text::new("b", Some("c"))],
-            track.artists()
-        );
+        assert_eq!(&[Text::from("a"), Text::from(("b", "c"))], track.artists());
     }
 
     #[test]
     fn artists_are_overridden_by_track() {
         let album = raw::Album::new("foo")
-            .with_artists(vec![Text::from_string("a"), Text::new("b", Some("c"))])
+            .with_artists(vec![Text::from("a"), Text::from(("b", "c"))])
             .with_discs(vec![raw::Disc::from_tracks(vec![
-                raw::Track::new("song").with_artists(vec![Text::from_string("d")])
+                raw::Track::new("song").with_artists(vec![Text::from("d")])
             ])]);
         let album = Album::new(album, PathBuf::from("."));
         let disc = album.disc(1).unwrap();
         let track = disc.track(1).unwrap();
-        assert_eq!(&[Text::from_string("d")], track.artists());
+        assert_eq!(&[Text::from("d")], track.artists());
     }
 
     #[test]
     fn no_album_artists_without_override() {
         let album = raw::Album::new("foo")
-            .with_artists(vec![Text::from_string("a"), Text::new("b", Some("c"))])
+            .with_artists(vec![Text::from("a"), Text::from(("b", "c"))])
             .with_discs(vec![raw::Disc::from_tracks(vec![raw::Track::new("song")])]);
         let album = Album::new(album, PathBuf::from("."));
         let disc = album.disc(1).unwrap();
@@ -590,15 +587,15 @@ mod tests {
     #[test]
     fn album_artists_are_set_when_overridden() {
         let album = raw::Album::new("foo")
-            .with_artists(vec![Text::from_string("a"), Text::new("b", Some("c"))])
+            .with_artists(vec![Text::from("a"), Text::from(("b", "c"))])
             .with_discs(vec![raw::Disc::from_tracks(vec![
-                raw::Track::new("song").with_artists(vec![Text::from_string("d")])
+                raw::Track::new("song").with_artists(vec![Text::from("d")])
             ])]);
         let album = Album::new(album, PathBuf::from("."));
         let disc = album.disc(1).unwrap();
         let track = disc.track(1).unwrap();
         assert_eq!(
-            Some(&[Text::from_string("a"), Text::new("b", Some("c"))][..]),
+            Some(&[Text::from("a"), Text::from(("b", "c"))][..]),
             track.album_artists(),
         );
     }

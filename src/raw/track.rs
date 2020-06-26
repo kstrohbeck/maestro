@@ -224,6 +224,13 @@ impl<'de> Deserialize<'de> for Track {
             where
                 E: de::Error,
             {
+                Ok(Track::new(value.to_string()))
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
                 Ok(Track::new(value))
             }
 
@@ -295,13 +302,13 @@ mod tests {
     #[test]
     fn string_is_parsed_to_track_with_title() {
         let track = serde_yaml::from_str::<Track>("\"foo\"").unwrap();
-        assert_eq!(Text::from_string("foo"), track.title);
+        assert_eq!(Text::from("foo"), track.title);
     }
 
     #[test]
     fn simple_title_is_parsed() {
         let track: Track = serde_yaml::from_str("title: foo").unwrap();
-        assert_eq!(Text::from_string("foo"), track.title);
+        assert_eq!(Text::from("foo"), track.title);
     }
 
     #[test]
@@ -314,7 +321,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Text::new("foo", Some("bar")), track.title);
+        assert_eq!(Text::from(("foo", "bar")), track.title);
     }
 
     #[test]
@@ -326,7 +333,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&[Text::from_string("bar")][..]), track.artists());
+        assert_eq!(Some(&[Text::from("bar")][..]), track.artists());
     }
 
     #[test]
@@ -340,7 +347,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&[Text::new("bar", Some("baz"))][..]), track.artists());
+        assert_eq!(Some(&[Text::from(("bar", "baz"))][..]), track.artists());
     }
 
     #[test]
@@ -368,7 +375,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            Some(&[Text::from_string("bar"), Text::from_string("baz")][..]),
+            Some(&[Text::from("bar"), Text::from("baz")][..]),
             track.artists(),
         );
     }
@@ -386,7 +393,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            Some(&[Text::from_string("bar"), Text::new("baz", Some("quux"))][..]),
+            Some(&[Text::from("bar"), Text::from(("baz", "quux"))][..]),
             track.artists(),
         );
     }
@@ -423,7 +430,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&Text::from_string("Music")), track.genre());
+        assert_eq!(Some(&Text::from("Music")), track.genre());
     }
 
     #[test]
@@ -437,7 +444,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&Text::new("Music", Some("Not Music"))), track.genre());
+        assert_eq!(Some(&Text::from(("Music", "Not Music"))), track.genre());
     }
 
     #[test]
@@ -449,7 +456,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&Text::from_string("stuff")), track.comment());
+        assert_eq!(Some(&Text::from("stuff")), track.comment());
     }
 
     #[test]
@@ -463,7 +470,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&Text::new("stuff", Some("other"))), track.comment());
+        assert_eq!(Some(&Text::from(("stuff", "other"))), track.comment());
     }
 
     #[test]
@@ -475,7 +482,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&Text::from_string("stuff")), track.lyrics());
+        assert_eq!(Some(&Text::from("stuff")), track.lyrics());
     }
 
     #[test]
@@ -489,7 +496,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&Text::new("stuff", Some("other"))), track.lyrics());
+        assert_eq!(Some(&Text::from(("stuff", "other"))), track.lyrics());
     }
 
     #[test]
@@ -501,7 +508,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Some(&[Text::from_string("bar")][..]), track.featuring());
+        assert_eq!(Some(&[Text::from("bar")][..]), track.featuring());
     }
 
     #[test]
@@ -515,10 +522,7 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(
-            Some(&[Text::new("bar", Some("baz"))][..]),
-            track.featuring()
-        );
+        assert_eq!(Some(&[Text::from(("bar", "baz"))][..]), track.featuring());
     }
 
     #[test]
@@ -533,7 +537,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            Some(&[Text::from_string("bar"), Text::from_string("baz")][..]),
+            Some(&[Text::from("bar"), Text::from("baz")][..]),
             track.featuring()
         );
     }
@@ -551,7 +555,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            Some(&[Text::new("bar", Some("baz")), Text::from_string("quux")][..]),
+            Some(&[Text::from(("bar", "baz")), Text::from("quux")][..]),
             track.featuring()
         );
     }

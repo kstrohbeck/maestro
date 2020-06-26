@@ -26,15 +26,15 @@ pub fn num_digits(mut number: usize) -> usize {
 /// ```rust
 /// # use std::borrow::Cow;
 /// # use songmaster::{text::Text, utils::comma_separated};
-/// let text = [Text::from_string("foo"), Text::new("bar", Some("baar")), Text::from_string("baz")];
-/// assert_eq!(Cow::Owned::<Text>(Text::new("foo, bar, baz", Some("foo, baar, baz"))), comma_separated(&text[..]));
+/// let text = [Text::from("foo"), Text::from(("bar", "baar")), Text::from("baz")];
+/// assert_eq!(Cow::Owned::<Text>(Text::from(("foo, bar, baz", "foo, baar, baz"))), comma_separated(&text[..]));
 /// ```
 pub fn comma_separated(text: &[Text]) -> Cow<Text> {
     if text.len() == 1 {
         Cow::Borrowed(&text[0])
     } else {
-        let mut res = Text::from_string("");
-        let sep = Text::from_string(", ");
+        let mut res = Text::from("");
+        let sep = Text::from(", ");
         for (i, t) in text.iter().enumerate() {
             if i != 0 {
                 res += &sep;
@@ -75,26 +75,23 @@ mod tests {
     #[test]
     fn comma_separated_empty_vec_is_empty() {
         let text = &[];
-        assert_eq!(
-            Cow::Owned::<Text>(Text::from_string("")),
-            comma_separated(text)
-        );
+        assert_eq!(Cow::Owned::<Text>(Text::from("")), comma_separated(text));
     }
 
     #[test]
     fn comma_separated_single_is_same() {
-        let text = &[Text::new("foo", Some("bar"))];
+        let text = &[Text::from(("foo", "bar"))];
         assert_eq!(
-            Cow::Borrowed(&Text::new("foo", Some("bar"))),
+            Cow::Borrowed(&Text::from(("foo", "bar"))),
             comma_separated(text)
         );
     }
 
     #[test]
     fn comma_separated_double_is_correct() {
-        let text = &[Text::new("foo", Some("bar")), Text::from_string("baz")];
+        let text = &[Text::from(("foo", "bar")), Text::from("baz")];
         assert_eq!(
-            Cow::Owned::<Text>(Text::new("foo, baz", Some("bar, baz"))),
+            Cow::Owned::<Text>(Text::from(("foo, baz", "bar, baz"))),
             comma_separated(text),
         );
     }
@@ -102,12 +99,12 @@ mod tests {
     #[test]
     fn comma_separated_triple_is_correct() {
         let text = &[
-            Text::new("foo", Some("bar")),
-            Text::from_string("baz"),
-            Text::new("quux", Some("other")),
+            Text::from(("foo", "bar")),
+            Text::from("baz"),
+            Text::from(("quux", "other")),
         ];
         assert_eq!(
-            Cow::Owned::<Text>(Text::new("foo, baz, quux", Some("bar, baz, other"))),
+            Cow::Owned::<Text>(Text::from(("foo, baz, quux", "bar, baz, other"))),
             comma_separated(text),
         );
     }

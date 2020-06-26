@@ -47,8 +47,8 @@ mod tests {
         .unwrap();
         let tracks = vec![
             Track::new("foo"),
-            Track::new(Text::new("bar", Some("baz"))),
-            Track::new("quux").with_artists(vec![Text::from_string("a"), Text::from_string("b")]),
+            Track::new(Text::from(("bar", "baz"))),
+            Track::new("quux").with_artists(vec![Text::from("a"), Text::from("b")]),
         ];
 
         assert_eq!(tracks, disc.tracks);

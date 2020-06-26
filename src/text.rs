@@ -266,7 +266,7 @@ impl Text {
     ///
     /// ```rust
     /// # use songmaster::Text;
-    /// let text = Text::from_string("bók?");
+    /// let text = Text::from("bók?");
     /// assert_eq!("bók?", text.value());
     /// ```
     pub fn value(&self) -> &str {
@@ -279,7 +279,7 @@ impl Text {
     ///
     /// ```rust
     /// # use songmaster::Text;
-    /// let text = Text::from_string("bók?");
+    /// let text = Text::from("bók?");
     /// assert_eq!("bok?", text.ascii());
     /// ```
     pub fn ascii(&self) -> &str {
@@ -292,7 +292,7 @@ impl Text {
     ///
     /// ```rust
     /// # use songmaster::Text;
-    /// let text = Text::from_string("bók?");
+    /// let text = Text::from("bók?");
     /// assert_eq!("bok", text.file_safe());
     /// ```
     pub fn file_safe(&self) -> &str {
@@ -308,7 +308,7 @@ impl Text {
     ///
     /// ```rust
     /// # use songmaster::Text;
-    /// let text = Text::from_string("the bók");
+    /// let text = Text::from("the bók");
     /// assert_eq!("bok, the", text.sortable_file_safe());
     /// ```
     pub fn sortable_file_safe(&self) -> Cow<str> {
@@ -336,13 +336,13 @@ impl Text {
     ///
     /// ```rust
     /// # use songmaster::Text;
-    /// let text = Text::from_string("bók");
+    /// let text = Text::from("bók");
     /// assert!(!text.has_overridden_ascii());
     /// ```
     ///
     /// ```rust
     /// # use songmaster::Text;
-    /// let text = Text::new("bók", Some("book"));
+    /// let text = Text::from(("bók", "book"));
     /// assert!(text.has_overridden_ascii());
     /// ```
     pub fn has_overridden_ascii(&self) -> bool {
@@ -352,19 +352,44 @@ impl Text {
 
 impl Default for Text {
     fn default() -> Self {
+        // TODO: Implement.
         unimplemented!()
     }
 }
 
-impl<'a> From<&'a str> for Text {
-    fn from(text: &'a str) -> Text {
-        Text::from_string(text.to_string())
+impl From<&'static str> for Text {
+    fn from(value: &'static str) -> Text {
+        Text::from_string(value)
     }
 }
 
 impl From<String> for Text {
     fn from(text: String) -> Text {
         Text::from_string(text)
+    }
+}
+
+impl From<(&'static str, &'static str)> for Text {
+    fn from((value, ascii): (&'static str, &'static str)) -> Text {
+        Text::new(value, Some(ascii))
+    }
+}
+
+impl From<(String, &'static str)> for Text {
+    fn from((value, ascii): (String, &'static str)) -> Text {
+        Text::new(value, Some(ascii))
+    }
+}
+
+impl From<(&'static str, String)> for Text {
+    fn from((value, ascii): (&'static str, String)) -> Text {
+        Text::new(value, Some(ascii))
+    }
+}
+
+impl From<(String, String)> for Text {
+    fn from((value, ascii): (String, String)) -> Text {
+        Text::new(value, Some(ascii))
     }
 }
 
@@ -551,7 +576,14 @@ impl<'de> Deserialize<'de> for Text {
             where
                 E: de::Error,
             {
-                Ok(Text::from_string(value.to_string()))
+                Ok(Text::from(value.to_string()))
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(Text::from(value))
             }
 
             fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>

@@ -129,7 +129,8 @@ impl Album {
             .unwrap_or_else(|| String::from(""))
             .into()];
         let year = get_most_often(&track_infos, |t| t.date_recorded().map(|d| d.year as usize));
-        let genre: Option<Text> = get_most_often(&track_infos, id3::Tag::genre).map(Into::into);
+        let genre: Option<Text> =
+            get_most_often(&track_infos, id3::Tag::genre).map(|s| Text::from(s.to_string()));
 
         let mut discs = HashMap::new();
         for info in track_infos.into_iter() {
@@ -146,14 +147,18 @@ impl Album {
                 .tag
                 .as_ref()
                 .and_then(|t| t.artist())
-                .map(|a| vec![Text::from_string(a.to_string())]);
+                .map(|a| vec![Text::from(a.to_string())]);
             let track_year = info
                 .tag
                 .as_ref()
                 .and_then(|t| t.date_recorded())
                 .map(|d| d.year as usize);
-            let track_genre = info.tag.as_ref().and_then(|t| t.genre()).map(Into::into);
-            let track = Track::new(title)
+            let track_genre = info
+                .tag
+                .as_ref()
+                .and_then(|t| t.genre())
+                .map(|s| Text::from(s.to_string()));
+            let track = Track::new(title.to_string())
                 .with_filename(filename)
                 .with_artists(track_artists)
                 .with_year(track_year)
@@ -333,17 +338,16 @@ mod tests {
 
     #[test]
     fn artist_is_only_artist_in_list() {
-        let album = Album::new("foo").with_artists(vec![Text::new("b", Some("c"))]);
-        assert_eq!(Cow::Borrowed(&Text::new("b", Some("c"))), album.artist());
+        let album = Album::new("foo").with_artists(vec![Text::from(("b", "c"))]);
+        assert_eq!(Cow::Borrowed(&Text::from(("b", "c"))), album.artist());
     }
 
     #[test]
     fn artist_is_comma_separated_if_multiple() {
-        let album =
-            Album::new("foo").with_artists(vec![Text::from_string("a"), Text::new("b", Some("c"))]);
+        let album = Album::new("foo").with_artists(vec![Text::from("a"), Text::from(("b", "c"))]);
 
         assert_eq!(
-            Cow::<Text>::Owned(Text::new("a, b", Some("a, c"))),
+            Cow::<Text>::Owned(Text::from(("a, b", "a, c"))),
             album.artist()
         );
     }
@@ -360,6 +364,6 @@ mod tests {
             ",
         )
         .unwrap();
-        assert_eq!(Text::from_string("foo"), album.title);
+        assert_eq!(Text::from("foo"), album.title);
     }
 }
