@@ -165,6 +165,19 @@ pub struct Text {
     file_safe: Option<String>,
 }
 
+/// The empty text. Useful for string concatenation.
+pub const EMPTY_TEXT: Text = Text {
+    value: Cow::Borrowed(""),
+    ascii: Ascii::Same,
+    file_safe: None,
+};
+
+pub const COMMA_SEP: Text = Text {
+    value: Cow::Borrowed(", "),
+    ascii: Ascii::Same,
+    file_safe: None,
+};
+
 impl Text {
     /// Create a new `Text` from regular text and an optionally overridden ASCII value.
     ///
@@ -397,9 +410,9 @@ impl Add<Text> for Text {
     type Output = Text;
 
     fn add(self, other: Text) -> Self::Output {
-        if self == Text::from_string("") {
+        if self == EMPTY_TEXT {
             return other;
-        } else if other == Text::from_string("") {
+        } else if other == EMPTY_TEXT {
             return self;
         }
 
@@ -439,7 +452,7 @@ impl Add<&Text> for Text {
     type Output = Text;
 
     fn add(self, other: &Text) -> Self::Output {
-        if other == &Text::from_string("") {
+        if other == &EMPTY_TEXT {
             return self;
         }
 
@@ -470,7 +483,7 @@ impl Add<Text> for &Text {
     type Output = Text;
 
     fn add(self, other: Text) -> Self::Output {
-        if self == &Text::from_string("") {
+        if self == &EMPTY_TEXT {
             return other;
         }
 

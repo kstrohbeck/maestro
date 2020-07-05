@@ -30,14 +30,15 @@ pub fn num_digits(mut number: usize) -> usize {
 /// assert_eq!(Cow::Owned::<Text>(Text::from(("foo, bar, baz", "foo, baar, baz"))), comma_separated(&text[..]));
 /// ```
 pub fn comma_separated(text: &[Text]) -> Cow<Text> {
+    use crate::text::{COMMA_SEP, EMPTY_TEXT};
+
     if text.len() == 1 {
         Cow::Borrowed(&text[0])
     } else {
-        let mut res = Text::from("");
-        let sep = Text::from(", ");
+        let mut res = EMPTY_TEXT;
         for (i, t) in text.iter().enumerate() {
             if i != 0 {
-                res += &sep;
+                res += COMMA_SEP;
             }
             res += t;
         }
