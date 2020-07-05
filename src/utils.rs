@@ -46,6 +46,22 @@ pub fn comma_separated(text: &[Text]) -> Cow<Text> {
     }
 }
 
+/// Splits an initial article from a string.
+///
+/// Returns a pair of the article and the rest of the string, or None if the string didn't start
+/// with an article.
+///
+/// Articles are "a", "an", and "the", ignoring case.
+///
+/// ```rust
+/// # use songmaster::utils::split_article;
+/// assert_eq!(split_article("A Thing"), Some(("A", "Thing")));
+/// assert_eq!(split_article("Another Thing"), None);
+/// ```
+pub fn split_article(s: &str) -> Option<(&str, &str)> {
+    todo!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,5 +124,20 @@ mod tests {
             Cow::Owned::<Text>(Text::from(("foo, baz, quux", "bar, baz, other"))),
             comma_separated(text),
         );
+    }
+
+    #[test]
+    fn split_article_preserves_capitalization() {
+        assert_eq!(split_article("THe titLe"), Some(("THe", "titLe")));
+    }
+
+    #[test]
+    fn split_article_only_removes_first_space() {
+        assert_eq!(split_article("the   title"), Some(("the", "  title")));
+    }
+
+    #[test]
+    fn split_article_doesnt_split_if_no_space() {
+        assert_eq!(split_article("the_title"), None);
     }
 }
