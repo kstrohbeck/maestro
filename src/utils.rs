@@ -46,6 +46,15 @@ pub fn comma_separated(text: &[Text]) -> Cow<Text> {
     }
 }
 
+macro_rules! expect_char {
+    ($cs:expr, $( $c:literal ),*) => {
+        let next = $cs.next()?;
+        if $( next != $c )&&* {
+            return None;
+        }
+    }
+}
+
 /// Splits an initial article from a string.
 ///
 /// Returns a pair of the article and the rest of the string, or None if the string didn't start
@@ -59,7 +68,35 @@ pub fn comma_separated(text: &[Text]) -> Cow<Text> {
 /// assert_eq!(split_article("Another Thing"), None);
 /// ```
 pub fn split_article(s: &str) -> Option<(&str, &str)> {
-    todo!()
+    let mut cs = s.chars();
+
+    match cs.next()? {
+        't' | 'T' => {
+            expect_char!(cs, 'h', 'H');
+            expect_char!(cs, 'e', 'E');
+            expect_char!(cs, ' ');
+            unsafe {
+                Some((s.get_unchecked(..3), s.get_unchecked(4..)))
+            }
+        }
+        'a' | 'A' => {
+            let next = cs.next()?;
+            if next == ' ' {
+                return unsafe {
+                    Some((s.get_unchecked(..1), s.get_unchecked(2..)))
+                };
+            }
+            if next != 'n' && next != 'N' {
+                return None;
+            }
+            expect_char!(cs, ' ');
+
+            unsafe {
+                Some((s.get_unchecked(..2), s.get_unchecked(3..)))
+            }
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
