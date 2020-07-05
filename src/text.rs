@@ -325,21 +325,13 @@ impl Text {
     /// assert_eq!("bok, the", text.sortable_file_safe());
     /// ```
     pub fn sortable_file_safe(&self) -> Cow<str> {
-        use lazy_static::lazy_static;
-        use regex::Regex;
+        use crate::utils::split_article;
 
-        lazy_static! {
-            static ref RE: Regex =
-                Regex::new(r"^(?i)(?P<article>the|an|a)\s(?P<rest>.*)$").unwrap();
-        }
         let file_safe = self.file_safe();
-        match RE.captures(&file_safe) {
-            None => file_safe.into(),
-            Some(caps) => {
-                let article = caps.name("article").unwrap().as_str();
-                let rest = caps.name("rest").unwrap().as_str();
-                format!("{}, {}", rest, article).into()
-            }
+        if let Some((article, rest)) = split_article(&file_safe) {
+            format!("{}, {}", rest, article).into()
+        } else {
+            file_safe.into()
         }
     }
 
