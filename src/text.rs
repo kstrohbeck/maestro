@@ -166,19 +166,25 @@ pub struct Text {
 }
 
 /// The empty text. Useful for string concatenation.
-pub const EMPTY_TEXT: Text = Text {
-    value: Cow::Borrowed(""),
-    ascii: Ascii::Same,
-    file_safe: None,
-};
+pub const EMPTY_TEXT: Text = unsafe { Text::from_str_unchecked("") };
 
-pub const COMMA_SEP: Text = Text {
-    value: Cow::Borrowed(", "),
-    ascii: Ascii::Same,
-    file_safe: None,
-};
+/// A comma separator. Useful for joining a list of `Text`s.
+pub const COMMA_SEP: Text = unsafe { Text::from_str_unchecked(", ") };
 
 impl Text {
+    /// Create a constant `Text` from a file-safe string constant.
+    ///
+    /// # Safety
+    ///
+    /// The passed-in string must be both entirely ascii and also file-safe.
+    const unsafe fn from_str_unchecked(value: &'static str) -> Self {
+        Self {
+            value: Cow::Borrowed(value),
+            ascii: Ascii::Same,
+            file_safe: None,
+        }
+    }
+
     /// Create a new `Text` from regular text and an optionally overridden ASCII value.
     ///
     /// # Examples
