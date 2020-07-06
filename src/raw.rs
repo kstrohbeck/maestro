@@ -1,6 +1,6 @@
 mod album;
-mod track;
 mod disc;
+mod track;
 
 pub use album::Album;
 pub use disc::Disc;

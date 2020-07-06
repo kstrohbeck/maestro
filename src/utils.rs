@@ -75,25 +75,19 @@ pub fn split_article(s: &str) -> Option<(&str, &str)> {
             expect_char!(cs, 'h', 'H');
             expect_char!(cs, 'e', 'E');
             expect_char!(cs, ' ');
-            unsafe {
-                Some((s.get_unchecked(..3), s.get_unchecked(4..)))
-            }
+            unsafe { Some((s.get_unchecked(..3), s.get_unchecked(4..))) }
         }
         'a' | 'A' => {
             let next = cs.next()?;
             if next == ' ' {
-                return unsafe {
-                    Some((s.get_unchecked(..1), s.get_unchecked(2..)))
-                };
+                return unsafe { Some((s.get_unchecked(..1), s.get_unchecked(2..))) };
             }
             if next != 'n' && next != 'N' {
                 return None;
             }
             expect_char!(cs, ' ');
 
-            unsafe {
-                Some((s.get_unchecked(..2), s.get_unchecked(3..)))
-            }
+            unsafe { Some((s.get_unchecked(..2), s.get_unchecked(3..))) }
         }
         _ => None,
     }
