@@ -35,9 +35,13 @@ enum Command {
 
     /// Export an album to a VW-compatible format.
     ExportVw {
-        #[structopt(parse(from_os_str))]
+        #[structopt(long, parse(from_os_str))]
+        /// The root path.
+        root: Option<PathBuf>,
+
+        #[structopt(parse(from_os_str), required_unless("root"))]
         /// The path to write the output to.
-        output: PathBuf,
+        output: Option<PathBuf>,
     },
 
     /// Validate an album's tags.
@@ -105,8 +109,17 @@ fn main() {
                 }
             }
         }
-        Command::ExportVw { output } => {
+        Command::ExportVw { root, output } => {
             let album = Album::load(folder).unwrap();
+            let output = output.unwrap_or_else(|| {
+                let mut root = root.unwrap();
+                let artist = album.artist();
+                let title = album.title();
+                root.push(artist.file_safe());
+                root.push(&title.file_safe());
+                root
+            });
+            std::fs::create_dir_all(&output).unwrap();
             let errs = foreach_track(&album, "Copying and updating tracks...", |track| {
                 track.update_id3_vw(&output)
             });
