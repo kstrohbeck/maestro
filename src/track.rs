@@ -417,6 +417,30 @@ impl<'a> Track<'a> {
             .map_err(UpdateId3Error::WriteError)
     }
 
+    pub fn export<P: AsRef<Path>>(&self, folder: P) -> Result<(), UpdateId3VwError> {
+        let orig_path = self.path();
+        if !orig_path.exists() {
+            return Err(UpdateId3VwError::FileNotFound);
+        }
+
+        let mut folder: Cow<Path> = folder.as_ref().into();
+        if !folder.exists() {
+            return Err(UpdateId3VwError::FolderNotFound);
+        }
+
+        // Check for disc, if it's needed.
+        if let Some(disc) = self.disc().filename() {
+            folder = folder.join(disc).into();
+            // TODO: Remove unwrap.
+            std::fs::create_dir_all(&folder).unwrap();
+        }
+
+        let path = folder.join(&self.filename_vw());
+        fs::copy(orig_path, &path).map_err(UpdateId3VwError::CopyError)?;
+
+        Ok(())
+    }
+
     pub fn update_id3_vw<P: AsRef<Path>>(&self, folder: P) -> Result<(), UpdateId3VwError> {
         let orig_path = self.path();
         if !orig_path.exists() {

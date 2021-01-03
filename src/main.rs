@@ -33,11 +33,15 @@ enum Command {
     /// Update an album's tags.
     Update,
 
-    /// Export an album to a VW-compatible format.
-    ExportVw {
+    ///Export an album to a folder.
+    Export {
         #[structopt(long, parse(from_os_str))]
         /// The root path.
         root: Option<PathBuf>,
+
+        #[structopt(short, long, default_value = "full")]
+        /// The format to export to.
+        format: ExportFormat,
 
         #[structopt(parse(from_os_str), required_unless("root"))]
         /// The path to write the output to.
@@ -58,6 +62,27 @@ enum Command {
 
     /// Generate an album definition from a folder of MP3 files.
     Generate,
+}
+
+#[derive(StructOpt, Debug)]
+enum ExportFormat {
+    /// Export the full album (keeping ID3 tags and disc folders.)
+    Full,
+
+    /// Export the album for car use (ASCII tags and flat structure.)
+    Vw,
+}
+
+impl std::str::FromStr for ExportFormat {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "full" => Ok(Self::Full),
+            "vw" => Ok(Self::Vw),
+            s => Err(format!("Invalid export format \"{}\"", s)),
+        }
+    }
 }
 
 fn main() {
@@ -109,7 +134,11 @@ fn main() {
                 }
             }
         }
-        Command::ExportVw { root, output } => {
+        Command::Export {
+            format,
+            root,
+            output,
+        } => {
             let album = Album::load(folder).unwrap();
             let output = output.unwrap_or_else(|| {
                 let mut root = root.unwrap();
@@ -120,8 +149,9 @@ fn main() {
                 root
             });
             std::fs::create_dir_all(&output).unwrap();
-            let errs = foreach_track(&album, "Copying and updating tracks...", |track| {
-                track.update_id3_vw(&output)
+            let errs = foreach_track(&album, "Copying tracks...", |track| match format {
+                ExportFormat::Full => track.export(&output),
+                ExportFormat::Vw => track.update_id3_vw(&output),
             });
             if let Err(errs) = errs {
                 for (track, err) in errs {
