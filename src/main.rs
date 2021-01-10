@@ -103,19 +103,19 @@ fn main() {
         E: Send + Sync,
     {
         let tracks = album.tracks().collect::<Vec<_>>();
-        let bar = ProgressBar::new(tracks.len() as u64);
-        bar.set_message(msg);
+        let progress_bar = ProgressBar::new(tracks.len() as u64);
+        progress_bar.set_message(msg);
 
         let errs = tracks
             .into_par_iter()
             .filter_map(|track| {
                 let res = func(&track);
-                bar.inc(1);
+                progress_bar.inc(1);
                 res.err().map(|err| (track, err))
             })
             .collect::<Vec<_>>();
 
-        bar.finish();
+        progress_bar.finish();
 
         if !errs.is_empty() {
             Err(errs)

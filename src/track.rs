@@ -288,7 +288,7 @@ impl<'a> Track<'a> {
         }
 
         push_err! {
-            match (self.id3_comment(), tag.comments().nth(0)) {
+            match (self.id3_comment(), tag.comments().next()) {
                 (None, Some(_)) => Some(ValidateError::UnexpectedFrame("comments")),
                 (Some(_), None) => Some(ValidateError::MissingFrame("comments")),
                 // TODO: Does comparing comments work?
@@ -300,7 +300,7 @@ impl<'a> Track<'a> {
         }
 
         push_err! {
-            match (self.id3_lyrics(), tag.lyrics().nth(0)) {
+            match (self.id3_lyrics(), tag.lyrics().next()) {
                 (None, Some(_)) => Some(ValidateError::UnexpectedFrame("lyrics")),
                 (Some(_), None) => Some(ValidateError::MissingFrame("lyrics")),
                 // TODO: Does comparing lyrics work?
@@ -313,7 +313,7 @@ impl<'a> Track<'a> {
 
         push_err! {
             match self.cover_id3_picture() {
-                Ok(cover) => match (cover, tag.pictures().nth(0)) {
+                Ok(cover) => match (cover, tag.pictures().next()) {
                     (None, Some(_)) => Some(ValidateError::UnexpectedFrame("cover")),
                     (Some(_), None) => Some(ValidateError::MissingFrame("cover")),
                     // TODO: Does comparing pictures work?
@@ -328,7 +328,7 @@ impl<'a> Track<'a> {
 
         // TODO: Check for duplicate and erroneous frames.
 
-        if errors.len() == 0 {
+        if errors.is_empty() {
             Ok(())
         } else {
             Err(errors)

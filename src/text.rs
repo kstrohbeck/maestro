@@ -225,9 +225,7 @@ impl Text {
         let ascii: Option<Cow<str>> = ascii.map(Into::into);
 
         let ascii = if let Some(ovr) = ascii {
-            let value = calculate_ascii(&ovr)
-                .map(Into::into)
-                .unwrap_or_else(|| ovr.into());
+            let value = calculate_ascii(&ovr).map(Into::into).unwrap_or(ovr);
             Ascii::overridden(value)
         } else if let Some(value) = calculate_ascii(&value) {
             Ascii::calculated(value)
@@ -298,10 +296,7 @@ impl Text {
     /// assert_eq!("bok", text.file_safe());
     /// ```
     pub fn file_safe(&self) -> &str {
-        self.file_safe
-            .as_ref()
-            .map(String::as_str)
-            .unwrap_or(self.ascii())
+        self.file_safe.as_deref().unwrap_or_else(|| self.ascii())
     }
 
     /// Get a sortable filename safe representation of the text.
@@ -834,7 +829,7 @@ mod tests {
 
         #[quickcheck]
         fn ascii_difference_is_left_absorbing(a: Text, b: Text) -> TestResult {
-            if !(a.value() != a.ascii()) {
+            if a.value() == a.ascii() {
                 return TestResult::discard();
             }
             let res = a + b;
@@ -843,7 +838,7 @@ mod tests {
 
         #[quickcheck]
         fn ascii_difference_is_right_absorbing(a: Text, b: Text) -> TestResult {
-            if !(a.value() != a.ascii()) {
+            if a.value() == a.ascii() {
                 return TestResult::discard();
             }
             let res = b + a;
