@@ -93,6 +93,45 @@ pub fn split_article(s: &str) -> Option<(&str, &str)> {
     }
 }
 
+/// Checks if a string is file safe.
+///
+/// ```rust
+/// # use songmaster::utils::is_file_safe;
+/// assert_eq!(is_file_safe("foo: bar"), false);
+/// assert_eq!(is_file_safe("foo-bar"), true);
+/// ```
+pub fn is_file_safe(s: &str) -> bool {
+    !s.contains(&['<', '>', ':', '"', '/', '|', '~', '\\', '*', '?'][..])
+}
+
+/// Returns a file safe version of a string, or `None` if it was already file safe.
+///
+/// ```rust
+/// # use songmaster::utils::make_file_safe;
+/// assert_eq!(make_file_safe("foo: bar"), Some(String::from("foo - bar")));
+/// assert_eq!(make_file_safe("foo-bar"), None);
+/// ```
+pub fn make_file_safe(s: &str) -> Option<String> {
+    if !is_file_safe(s) {
+        let mut buf = String::with_capacity(s.len());
+        for c in s.chars() {
+            match c {
+                '<' => buf.push('['),
+                '>' => buf.push(']'),
+                ':' => buf.push_str(" -"),
+                '"' => buf.push('\''),
+                '/' | '|' | '~' => buf.push('-'),
+                '\\' | '*' => buf.push('_'),
+                '?' => {}
+                _ => buf.push(c),
+            }
+        }
+        Some(buf)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,5 +209,38 @@ mod tests {
     #[test]
     fn split_article_doesnt_split_if_no_space() {
         assert_eq!(split_article("the_title"), None);
+    }
+
+    mod make_file_safe {
+        use super::{is_file_safe, make_file_safe};
+        use quickcheck::TestResult;
+        use quickcheck_macros::quickcheck;
+
+        #[quickcheck]
+        fn returns_none_for_file_safe_string(a: String) -> TestResult {
+            if !is_file_safe(&a) {
+                TestResult::discard()
+            } else {
+                TestResult::from_bool(make_file_safe(&a).is_none())
+            }
+        }
+
+        #[quickcheck]
+        fn returns_some_for_non_file_safe_string(a: String) -> TestResult {
+            if is_file_safe(&a) {
+                TestResult::discard()
+            } else {
+                TestResult::from_bool(make_file_safe(&a).is_some())
+            }
+        }
+
+        #[quickcheck]
+        fn result_doesnt_contain_non_file_safe_chars(a: String) -> TestResult {
+            if let Some(s) = make_file_safe(&a) {
+                TestResult::from_bool(is_file_safe(&s))
+            } else {
+                TestResult::discard()
+            }
+        }
     }
 }
