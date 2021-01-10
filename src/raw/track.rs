@@ -49,7 +49,7 @@ impl Track {
     }
 
     pub fn artists(&self) -> Option<&[Text]> {
-        self.artists.as_ref().map(Vec::as_slice)
+        self.artists.as_deref()
     }
 
     pub fn genre(&self) -> Option<&Text> {
@@ -65,11 +65,11 @@ impl Track {
     }
 
     pub fn featuring(&self) -> Option<&[Text]> {
-        self.featuring.as_ref().map(Vec::as_slice)
+        self.featuring.as_deref()
     }
 
     pub fn filename(&self) -> Option<&str> {
-        self.filename.as_ref().map(String::as_str)
+        self.filename.as_deref()
     }
 
     pub fn with_artists<T: Into<Option<Vec<Text>>>>(mut self, artists: T) -> Self {

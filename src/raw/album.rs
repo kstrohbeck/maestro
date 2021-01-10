@@ -31,8 +31,6 @@ impl Album {
     pub fn generate<P: AsRef<Path>>(path: P) -> Album {
         use super::track::Track;
         use std::collections::HashMap;
-        use std::fs::File;
-        use std::io::{BufReader, Seek};
         use std::path::PathBuf;
         use walkdir::WalkDir;
 
@@ -58,7 +56,7 @@ impl Album {
 
         let mut track_infos = WalkDir::new(path)
             .into_iter()
-            .filter_map(|e| ok_or_print(e))
+            .filter_map(ok_or_print)
             .filter(|d| d.file_type().is_file())
             .filter_map(|d| {
                 let path = d.into_path();
@@ -170,7 +168,7 @@ impl Album {
                 .and_then(|t| t.disc())
                 .map(|d| d.to_string())
                 .or(info.disc_name)
-                .unwrap_or(String::from("Disc 1"));
+                .unwrap_or_else(|| String::from("Disc 1"));
             discs.entry(disc).or_insert_with(Vec::new).push(track);
         }
 
@@ -181,7 +179,7 @@ impl Album {
             .map(|(_, v)| Disc::from_tracks(v))
             .collect::<Vec<_>>();
 
-        Album::new(title.unwrap_or(String::from("")))
+        Album::new(title.unwrap_or_else(|| String::from("")))
             .with_artists(artists)
             .with_year(year)
             .with_genre(genre)

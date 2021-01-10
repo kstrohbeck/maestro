@@ -2,8 +2,7 @@ extern crate songmaster;
 
 use indicatif::ProgressBar;
 use rayon::prelude::*;
-use songmaster::album::{Album, AlbumLoadError};
-use songmaster::track::Track;
+use songmaster::{album::Album, track::Track};
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -89,7 +88,7 @@ fn main() {
     let Opt {
         folder,
         command,
-        verbose,
+        verbose: _verbose,
         dry_run,
     } = Opt::from_args();
 

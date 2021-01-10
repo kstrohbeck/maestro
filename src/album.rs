@@ -1,7 +1,4 @@
-use super::{
-    disc::Disc,
-    track::{Track, UpdateId3Error, UpdateId3VwError, ValidateError},
-};
+use super::{disc::Disc, track::Track};
 use crate::{
     image::{Image, LoadWithCacheError},
     raw,
