@@ -356,20 +356,7 @@ impl<'a> Track<'a> {
         Ok(())
     }
 
-    pub fn update_id3(&self) -> Result<(), UpdateId3Error> {
-        // TODO: Use clear?
-        // Check if the file exists before trying to create a tag.
-        let path = self.path();
-        if !path.exists() {
-            return Err(UpdateId3Error::FileNotFound);
-        }
-
-        // Remove the old tag.
-        // TODO: Remove unwraps.
-        // TODO: This seems redundant with the path check? We should remove that.
-        // TODO: See if we can avoid doing this.
-        self.clear()?;
-
+    fn tag(&self) -> Result<Tag, UpdateId3Error> {
         let mut tag = Tag::new();
 
         tag.set_title(self.title().value());
@@ -412,6 +399,31 @@ impl<'a> Track<'a> {
         {
             tag.add_picture(picture);
         }
+
+        Ok(tag)
+    }
+
+    pub fn update_id3(&self) -> Result<(), UpdateId3Error> {
+        // TODO: Use clear?
+        // Check if the file exists before trying to create a tag.
+        let path = self.path();
+        if !path.exists() {
+            return Err(UpdateId3Error::FileNotFound);
+        }
+
+        // TODO: Make a special error for this.
+        let tag = self.tag()?;
+
+        if let Ok(old_tag) = Tag::read_from_path(self.path()) {
+            if old_tag == tag {
+                return Ok(());
+            }
+        }
+
+        // Remove the old tag.
+        // TODO: This seems redundant with the path check? We should remove that.
+        // TODO: See if we can avoid doing this.
+        self.clear()?;
 
         tag.write_to_path(path, Version::Id3v24)
             .map_err(UpdateId3Error::WriteError)
