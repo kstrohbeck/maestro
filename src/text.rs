@@ -1,3 +1,4 @@
+use crate::utils::make_file_safe;
 use serde::{de, ser, Deserialize, Serialize};
 use std::borrow::Cow;
 use std::ops::{Add, AddAssign};
@@ -235,25 +236,7 @@ impl Text {
         };
 
         let ascii_for_value = ascii.for_value(&value);
-        let file_safe =
-            if ascii_for_value.contains(&['<', '>', ':', '"', '/', '|', '~', '\\', '*', '?'][..]) {
-                let mut buf = String::with_capacity(ascii_for_value.len());
-                for c in ascii_for_value.chars() {
-                    match c {
-                        '<' => buf.push('['),
-                        '>' => buf.push(']'),
-                        ':' => buf.push_str(" -"),
-                        '"' => buf.push('\''),
-                        '/' | '|' | '~' => buf.push('-'),
-                        '\\' | '*' => buf.push('_'),
-                        '?' => {}
-                        _ => buf.push(c),
-                    }
-                }
-                Some(buf)
-            } else {
-                None
-            };
+        let file_safe = make_file_safe(ascii_for_value);
 
         Self {
             value,
