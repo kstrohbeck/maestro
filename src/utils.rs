@@ -93,6 +93,8 @@ pub fn split_article(s: &str) -> Option<(&str, &str)> {
     }
 }
 
+const FILE_UNSAFE_CHARS: [char; 10] = ['<', '>', ':', '"', '/', '|', '~', '\\', '*', '?'];
+
 /// Checks if a string is file safe.
 ///
 /// ```rust
@@ -101,7 +103,7 @@ pub fn split_article(s: &str) -> Option<(&str, &str)> {
 /// assert_eq!(is_file_safe("foo-bar"), true);
 /// ```
 pub fn is_file_safe(s: &str) -> bool {
-    !s.contains(&['<', '>', ':', '"', '/', '|', '~', '\\', '*', '?'][..])
+    !s.contains(&FILE_UNSAFE_CHARS[..])
 }
 
 /// Returns a file safe version of a string, or `None` if it was already file safe.
@@ -112,24 +114,44 @@ pub fn is_file_safe(s: &str) -> bool {
 /// assert_eq!(make_file_safe("foo-bar"), None);
 /// ```
 pub fn make_file_safe(s: &str) -> Option<String> {
-    if !is_file_safe(s) {
-        let mut buf = String::with_capacity(s.len());
-        for c in s.chars() {
-            match c {
-                '<' => buf.push('['),
-                '>' => buf.push(']'),
-                ':' => buf.push_str(" -"),
-                '"' => buf.push('\''),
-                '/' | '|' | '~' => buf.push('-'),
-                '\\' | '*' => buf.push('_'),
-                '?' => {}
-                _ => buf.push(c),
+    let mut prefix = None;
+    let mut iter = s.char_indices().peekable();
+
+    while let Some((i, c)) = iter.peek() {
+        if FILE_UNSAFE_CHARS.contains(&c) {
+            if *i > 0 {
+                prefix = Some(String::from(unsafe { s.get_unchecked(..*i) }));
+            } else {
+                prefix = Some(String::new());
             }
+            break;
         }
-        Some(buf)
-    } else {
-        None
+        iter.next();
     }
+
+    let mut accum = prefix?;
+
+    // TODO: Can we replace this with a for loop?
+    while let Some((_, c)) = iter.next() {
+        match c {
+            '<' => accum.push('['),
+            '>' => accum.push(']'),
+            ':' => {
+                if iter.peek().map(|(_, c)| *c) == Some(' ') {
+                    accum.push_str(" -");
+                } else {
+                    accum.push('-');
+                }
+            }
+            '"' => accum.push('\''),
+            '/' | '|' | '~' => accum.push('-'),
+            '\\' | '*' => accum.push('_'),
+            '?' => {}
+            c => accum.push(c),
+        }
+    }
+
+    Some(accum)
 }
 
 #[cfg(test)]
@@ -241,6 +263,16 @@ mod tests {
             } else {
                 TestResult::discard()
             }
+        }
+
+        #[test]
+        fn result_has_spaced_hyphen_instead_of_spaced_colon() {
+            assert_eq!(make_file_safe("foo: bar"), Some(String::from("foo - bar")));
+        }
+
+        #[test]
+        fn result_has_unspaced_hyphen_instead_of_unspaced_colon() {
+            assert_eq!(make_file_safe("foo:bar"), Some(String::from("foo-bar")));
         }
     }
 }
