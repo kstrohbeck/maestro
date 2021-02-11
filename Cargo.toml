@@ -1,5 +1,5 @@
 [package]
-name = "songmaster"
+name = "maestro"
 version = "0.2.0"
 authors = ["Kyle Strohbeck <kstrohbeck@gmail.com>"]
 edition = "2018"

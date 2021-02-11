@@ -6,7 +6,7 @@ use std::borrow::Cow;
 /// # Examples
 ///
 /// ```rust
-/// # use songmaster::utils::num_digits;
+/// # use maestro::utils::num_digits;
 /// assert_eq!(2, num_digits(12));
 /// assert_eq!(3, num_digits(900));
 /// ```
@@ -25,7 +25,7 @@ pub fn num_digits(mut number: usize) -> usize {
 ///
 /// ```rust
 /// # use std::borrow::Cow;
-/// # use songmaster::{text::Text, utils::comma_separated};
+/// # use maestro::{text::Text, utils::comma_separated};
 /// let text = [Text::from("foo"), Text::from(("bar", "baar")), Text::from("baz")];
 /// assert_eq!(Cow::Owned::<Text>(Text::from(("foo, bar, baz", "foo, baar, baz"))), comma_separated(&text[..]));
 /// ```
@@ -63,7 +63,7 @@ macro_rules! expect_char {
 /// Articles are "a", "an", and "the", ignoring case.
 ///
 /// ```rust
-/// # use songmaster::utils::split_article;
+/// # use maestro::utils::split_article;
 /// assert_eq!(split_article("A Thing"), Some(("A", "Thing")));
 /// assert_eq!(split_article("Another Thing"), None);
 /// ```
@@ -98,7 +98,7 @@ const FILE_UNSAFE_CHARS: [char; 10] = ['<', '>', ':', '"', '/', '|', '~', '\\', 
 /// Checks if a string is file safe.
 ///
 /// ```rust
-/// # use songmaster::utils::is_file_safe;
+/// # use maestro::utils::is_file_safe;
 /// assert_eq!(is_file_safe("foo: bar"), false);
 /// assert_eq!(is_file_safe("foo-bar"), true);
 /// ```
@@ -109,7 +109,7 @@ pub fn is_file_safe(s: &str) -> bool {
 /// Returns a file safe version of a string, or `None` if it was already file safe.
 ///
 /// ```rust
-/// # use songmaster::utils::make_file_safe;
+/// # use maestro::utils::make_file_safe;
 /// assert_eq!(make_file_safe("foo: bar"), Some(String::from("foo - bar")));
 /// assert_eq!(make_file_safe("foo-bar"), None);
 /// ```

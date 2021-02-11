@@ -1,13 +1,13 @@
-extern crate songmaster;
+extern crate maestro;
 
 use indicatif::ProgressBar;
+use maestro::{album::Album, track::Track};
 use rayon::prelude::*;
-use songmaster::{album::Album, track::Track};
 use std::path::PathBuf;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
-#[structopt(name = "songmaster")]
+#[structopt(name = "maestro")]
 /// Music album organization and tagging software.
 struct Opt {
     #[structopt(subcommand)]

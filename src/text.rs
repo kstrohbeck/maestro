@@ -191,7 +191,7 @@ impl Text {
     /// # Examples
     ///
     /// ```rust
-    /// # use songmaster::Text;
+    /// # use maestro::Text;
     /// let text = Text::new("本", Some("book"));
     /// assert_eq!("本", text.value());
     /// assert_eq!("book", text.ascii());
@@ -248,7 +248,7 @@ impl Text {
     /// # Examples
     ///
     /// ```rust
-    /// # use songmaster::Text;
+    /// # use maestro::Text;
     /// let text = Text::from_string("bók");
     /// assert_eq!("bók", text.value());
     /// assert_eq!("bok", text.ascii());
@@ -265,7 +265,7 @@ impl Text {
     /// # Examples
     ///
     /// ```rust
-    /// # use songmaster::Text;
+    /// # use maestro::Text;
     /// let text = Text::from("bók?");
     /// assert_eq!("bók?", text.value());
     /// ```
@@ -278,7 +278,7 @@ impl Text {
     /// # Examples
     ///
     /// ```rust
-    /// # use songmaster::Text;
+    /// # use maestro::Text;
     /// let text = Text::from("bók?");
     /// assert_eq!("bok?", text.ascii());
     /// ```
@@ -291,7 +291,7 @@ impl Text {
     /// # Examples
     ///
     /// ```rust
-    /// # use songmaster::Text;
+    /// # use maestro::Text;
     /// let text = Text::from("bók?");
     /// assert_eq!("bok", text.file_safe());
     /// ```
@@ -304,7 +304,7 @@ impl Text {
     /// # Examples
     ///
     /// ```rust
-    /// # use songmaster::Text;
+    /// # use maestro::Text;
     /// let text = Text::from("the bók");
     /// assert_eq!("bok, the", text.sortable_file_safe());
     /// ```
@@ -324,13 +324,13 @@ impl Text {
     /// # Examples
     ///
     /// ```rust
-    /// # use songmaster::Text;
+    /// # use maestro::Text;
     /// let text = Text::from("bók");
     /// assert!(!text.has_overridden_ascii());
     /// ```
     ///
     /// ```rust
-    /// # use songmaster::Text;
+    /// # use maestro::Text;
     /// let text = Text::from(("bók", "book"));
     /// assert!(text.has_overridden_ascii());
     /// ```

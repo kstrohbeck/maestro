@@ -13,5 +13,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial code.
 
-[Unreleased]: https://github.com/kstrohbeck/songmaster-rs/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/kstrohbeck/songmaster-rs/releases/tag/v0.2.0
+[Unreleased]: https://github.com/kstrohbeck/maestro-rs/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kstrohbeck/maestro-rs/releases/tag/v0.2.0

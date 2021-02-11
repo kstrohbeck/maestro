@@ -21,7 +21,7 @@ impl Format {
     /// # Examples
     ///
     /// ```rust
-    /// # use songmaster::image::Format;
+    /// # use maestro::image::Format;
     /// let img_fmt = Format::Png;
     /// let filename = format!("foo.{}", img_fmt.ext());
     /// ```
@@ -94,7 +94,7 @@ impl Image {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use songmaster::image::{Image, LoadError};
+    /// # use maestro::image::{Image, LoadError};
     /// let img = Image::load("images/foo.jpg")?;
     /// # Ok::<(), LoadError>(())
     /// ```
@@ -120,7 +120,7 @@ impl Image {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use songmaster::image::{Image, LoadWithCacheError, transform_image};
+    /// # use maestro::image::{Image, LoadWithCacheError, transform_image};
     /// let img = Image::load_with_cache("images", ".cache", "foo", transform_image)?;
     /// # Ok::<(), LoadWithCacheError>(())
     /// ```
