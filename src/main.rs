@@ -24,6 +24,10 @@ struct Opt {
     /// Prints out actions instead of doing them.
     #[structopt(long)]
     dry_run: bool,
+
+    /// Parallelizes track processing.
+    #[structopt(long)]
+    parallelize: bool,
 }
 
 #[derive(StructOpt, Debug)]
@@ -90,12 +94,14 @@ fn main() {
         command,
         verbose: _verbose,
         dry_run,
+        parallelize,
     } = Opt::from_args();
 
     fn foreach_track<'a, F, E>(
         album: &'a Album,
         msg: &str,
         func: F,
+        parallelize: bool,
     ) -> Result<(), Vec<(Track<'a>, E)>>
     where
         F: Fn(&Track<'a>) -> Result<(), E> + Send + Sync,
@@ -105,14 +111,25 @@ fn main() {
         let progress_bar = ProgressBar::new(tracks.len() as u64);
         progress_bar.set_message(msg);
 
-        let errs = tracks
-            .into_par_iter()
-            .filter_map(|track| {
-                let res = func(&track);
-                progress_bar.inc(1);
-                res.err().map(|err| (track, err))
-            })
-            .collect::<Vec<_>>();
+        let errs = if parallelize {
+            tracks
+                .into_par_iter()
+                .filter_map(|track| {
+                    let res = func(&track);
+                    progress_bar.inc(1);
+                    res.err().map(|err| (track, err))
+                })
+                .collect::<Vec<_>>()
+        } else {
+            tracks
+                .into_iter()
+                .filter_map(|track| {
+                    let res = func(&track);
+                    progress_bar.inc(1);
+                    res.err().map(|err| (track, err))
+                })
+                .collect::<Vec<_>>()
+        };
 
         progress_bar.finish();
 
@@ -126,7 +143,12 @@ fn main() {
     match command {
         Command::Update => {
             let album = Album::load(folder).unwrap();
-            let errs = foreach_track(&album, "Updating tracks...", |track| track.update_id3());
+            let errs = foreach_track(
+                &album,
+                "Updating tracks...",
+                |track| track.update_id3(),
+                parallelize,
+            );
             if let Err(errs) = errs {
                 for (track, err) in errs {
                     println!("\"{}\" - {:?}", track.title().value(), err);
@@ -148,10 +170,15 @@ fn main() {
                 root
             });
             std::fs::create_dir_all(&output).unwrap();
-            let errs = foreach_track(&album, "Copying tracks...", |track| match format {
-                ExportFormat::Full => track.export(&output),
-                ExportFormat::Vw => track.update_id3_vw(&output),
-            });
+            let errs = foreach_track(
+                &album,
+                "Copying tracks...",
+                |track| match format {
+                    ExportFormat::Full => track.export(&output),
+                    ExportFormat::Vw => track.update_id3_vw(&output),
+                },
+                parallelize,
+            );
             if let Err(errs) = errs {
                 for (track, err) in errs {
                     println!("\"{}\" - {:?}", track.title().value(), err);
@@ -160,7 +187,12 @@ fn main() {
         }
         Command::Validate => {
             let album = Album::load(folder).unwrap();
-            let errs = foreach_track(&album, "Validating tracks...", |track| track.validate());
+            let errs = foreach_track(
+                &album,
+                "Validating tracks...",
+                |track| track.validate(),
+                parallelize,
+            );
             if let Err(errs) = errs {
                 for (track, errs) in errs {
                     println!("\"{}\":", track.filename());
@@ -178,7 +210,12 @@ fn main() {
         }
         Command::Clear => {
             let album = Album::load(folder).unwrap();
-            let errs = foreach_track(&album, "Clearing tracks...", |track| track.clear());
+            let errs = foreach_track(
+                &album,
+                "Clearing tracks...",
+                |track| track.clear(),
+                parallelize,
+            );
             if let Err(errs) = errs {
                 for (track, err) in errs {
                     println!("\"{}\" - {:?}", track.filename(), err);
@@ -198,18 +235,23 @@ fn main() {
             }
 
             // If there were any errors making these, quit with an error.
-            let errs = foreach_track(&album, "Renaming tracks...", |track| {
-                let path = track.path();
-                let can_path = track.canonical_path();
-                if path == can_path {
-                    return Ok(());
-                }
-                if !dry_run {
-                    fs::rename(path, can_path)
-                } else {
-                    Ok(())
-                }
-            });
+            let errs = foreach_track(
+                &album,
+                "Renaming tracks...",
+                |track| {
+                    let path = track.path();
+                    let can_path = track.canonical_path();
+                    if path == can_path {
+                        return Ok(());
+                    }
+                    if !dry_run {
+                        fs::rename(path, can_path)
+                    } else {
+                        Ok(())
+                    }
+                },
+                parallelize,
+            );
 
             if let Err(errs) = errs {
                 for (track, err) in errs {
