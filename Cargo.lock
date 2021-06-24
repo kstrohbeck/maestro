@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "maestro"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "id3",
  "image",
