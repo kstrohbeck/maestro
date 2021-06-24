@@ -99,7 +99,7 @@ fn main() {
 
     fn foreach_track<'a, F, E>(
         album: &'a Album,
-        msg: &str,
+        msg: &'static str,
         func: F,
         parallelize: bool,
     ) -> Result<(), Vec<(Track<'a>, E)>>

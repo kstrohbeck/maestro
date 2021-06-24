@@ -292,15 +292,15 @@ macro_rules! encode {
 /// The transformed image is 1000x1000 pixels, and may be a PNG or JPEG. The encoding used is
 /// whichever produces a smaller-sized output.
 pub fn transform_image(img: DynamicImage) -> Result<Image, image::ImageError> {
-    use image::{jpeg::JPEGEncoder, png::PNGEncoder};
+    use image::{jpeg::JpegEncoder, png::PngEncoder};
 
     let img = img
         .resize(1000, 1000, image::imageops::FilterType::Lanczos3)
-        .to_rgb();
+        .to_rgb8();
 
     // Try both PNG and JPEG encoding.
-    let png_data = encode!(PNGEncoder, &img)?;
-    let jpeg_data = encode!(JPEGEncoder, &img)?;
+    let png_data = encode!(PngEncoder, &img)?;
+    let jpeg_data = encode!(JpegEncoder, &img)?;
 
     Ok(if png_data.len() <= jpeg_data.len() {
         Image::from_png(png_data)
@@ -311,12 +311,12 @@ pub fn transform_image(img: DynamicImage) -> Result<Image, image::ImageError> {
 
 /// Transform an image into a format for car use.
 pub fn transform_image_vw(img: DynamicImage) -> Result<Image, image::ImageError> {
-    use image::jpeg::JPEGEncoder;
+    use image::jpeg::JpegEncoder;
 
     let img = img
         .resize(300, 300, image::imageops::FilterType::Lanczos3)
-        .to_rgb();
-    let data = encode!(JPEGEncoder, &img)?;
+        .to_rgb8();
+    let data = encode!(JpegEncoder, &img)?;
     Ok(Image::from_jpeg(data))
 }
 
