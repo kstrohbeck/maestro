@@ -26,6 +26,8 @@ fn calculate_ascii(s: &str) -> Option<String> {
     fn char_ascii(c: char) -> Option<char> {
         if c.is_ascii() {
             Some(c)
+        } else if c == '“' || c == '”' {
+            Some('"')
         } else if c == '‘' || c == '’' {
             Some('\'')
         } else {
@@ -683,6 +685,20 @@ mod tests {
         }
 
         // TODO: Implement a better shrinking strategy.
+    }
+
+    mod calculate_ascii {
+        use super::*;
+
+        #[test]
+        fn translates_smart_quotes() {
+            assert_eq!(calculate_ascii("“”‘’"), Some(String::from("\"\"''")));
+        }
+
+        #[test]
+        fn translates_full_width_chars() {
+            assert_eq!(calculate_ascii("Ｆｏｏ！"), Some(String::from("Foo!")));
+        }
     }
 
     mod value {
