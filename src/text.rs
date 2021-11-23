@@ -16,6 +16,26 @@ fn add_cows<'a>(left: Cow<'a, str>, right: Cow<'a, str>) -> String {
     }
 }
 
+fn calculate_ascii(s: &str) -> Option<String> {
+    use unicode_normalization::UnicodeNormalization;
+
+    if s.is_ascii() {
+        return None;
+    }
+
+    fn char_ascii(c: char) -> Option<char> {
+        if c.is_ascii() {
+            Some(c)
+        } else if c == '‘' || c == '’' {
+            Some('\'')
+        } else {
+            None
+        }
+    }
+
+    s.nfkd().filter_map(char_ascii).collect::<String>().into()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// The ASCII value of a piece of text.
 enum Ascii {
@@ -201,26 +221,6 @@ impl Text {
         T: Into<Cow<'static, str>>,
         U: Into<Cow<'static, str>>,
     {
-        fn calculate_ascii(s: &str) -> Option<String> {
-            use unicode_normalization::UnicodeNormalization;
-
-            if s.is_ascii() {
-                return None;
-            }
-
-            fn char_ascii(c: char) -> Option<char> {
-                if c.is_ascii() {
-                    Some(c)
-                } else if c == '‘' || c == '’' {
-                    Some('\'')
-                } else {
-                    None
-                }
-            }
-
-            s.nfkd().filter_map(char_ascii).collect::<String>().into()
-        }
-
         let value: Cow<str> = value.into();
         let ascii: Option<Cow<str>> = ascii.map(Into::into);
 
