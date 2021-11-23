@@ -621,10 +621,11 @@ mod tests {
     }
 
     impl Arbitrary for AsciiString {
-        fn arbitrary<G: Gen>(g: &mut G) -> Self {
+        fn arbitrary(g: &mut Gen) -> Self {
             Vec::<u8>::arbitrary(g)
                 .into_iter()
                 .map(Into::<char>::into)
+                .filter(|c| c.is_ascii())
                 .collect::<String>()
                 .into()
         }
@@ -646,7 +647,7 @@ mod tests {
     }
 
     impl Arbitrary for FileSafeString {
-        fn arbitrary<G: Gen>(g: &mut G) -> Self {
+        fn arbitrary(g: &mut Gen) -> Self {
             Vec::<u8>::arbitrary(g)
                 .into_iter()
                 .map(Into::<char>::into)
@@ -663,7 +664,7 @@ mod tests {
     }
 
     impl Arbitrary for Text {
-        fn arbitrary<G: Gen>(g: &mut G) -> Self {
+        fn arbitrary(g: &mut Gen) -> Self {
             let value = match u8::arbitrary(g) % 3 {
                 0 => FileSafeString::arbitrary(g).into(),
                 1 => AsciiString::arbitrary(g).into(),
@@ -733,7 +734,13 @@ mod tests {
 
         #[quickcheck]
         fn is_different_than_value_if_calculated(a: Text) -> TestResult {
-            if !matches!(a.ascii, Ascii::Different { is_overridden: false, ..}) {
+            if !matches!(
+                a.ascii,
+                Ascii::Different {
+                    is_overridden: false,
+                    ..
+                }
+            ) {
                 return TestResult::discard();
             }
             TestResult::from_bool(a.value() != a.ascii())
