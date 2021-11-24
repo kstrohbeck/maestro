@@ -339,6 +339,42 @@ impl Text {
     pub fn has_overridden_ascii(&self) -> bool {
         self.ascii.is_overridden()
     }
+
+    /// Return a simplified version of the Text.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use maestro::Text;
+    /// let text = Text::from("the bók");
+    /// assert_eq!(None, text.simplified());
+    /// ```
+    ///
+    /// ```rust
+    /// # use maestro::Text;
+    /// let text = Text::new("the bók", Some("the bok"));
+    /// assert_eq!(Some(Text::from("the bók")), text.simplified());
+    /// ```
+    pub fn simplified(&self) -> Option<Self> {
+        let ovr = match &self.ascii {
+            Ascii::Different {
+                value,
+                is_overridden: true,
+            } => value,
+            _ => return None,
+        };
+
+        let calc = calculate_ascii(&self.value)?;
+
+        if ovr == &calc {
+            Some(Text::new(
+                self.value.clone(),
+                None as Option<Cow<'static, str>>,
+            ))
+        } else {
+            None
+        }
+    }
 }
 
 impl Default for Text {
@@ -882,6 +918,34 @@ mod tests {
                 return TestResult::discard();
             }
             TestResult::from_bool((b + a).has_overridden_ascii())
+        }
+    }
+
+    mod simplified {
+        use super::*;
+
+        #[test]
+        fn ascii_string_is_already_simplified() {
+            let text = Text::from("bok");
+            assert_eq!(None, text.simplified());
+        }
+
+        #[test]
+        fn calculated_string_is_already_simplified() {
+            let text = Text::from("bók");
+            assert_eq!(None, text.simplified());
+        }
+
+        #[test]
+        fn overridden_string_different_from_calc_is_already_simplified() {
+            let text = Text::new("bók", Some("book"));
+            assert_eq!(None, text.simplified());
+        }
+
+        #[test]
+        fn overridden_string_different_from_calc_can_be_simplified() {
+            let text = Text::new("bók", Some("bok"));
+            assert_eq!(Some(Text::from("bók")), text.simplified());
         }
     }
 
