@@ -118,7 +118,7 @@ pub fn make_file_safe(s: &str) -> Option<String> {
     let mut iter = s.char_indices().peekable();
 
     while let Some((i, c)) = iter.peek() {
-        if FILE_UNSAFE_CHARS.contains(&c) {
+        if FILE_UNSAFE_CHARS.contains(c) {
             prefix = Some(String::from(unsafe { s.get_unchecked(..*i) }));
             break;
         }

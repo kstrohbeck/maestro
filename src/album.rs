@@ -161,7 +161,7 @@ impl Album {
     }
 
     pub fn save(&mut self) -> Result<(), ()> {
-        Ok(())
+        todo!()
     }
 }
 

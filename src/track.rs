@@ -151,7 +151,7 @@ impl<'a> Track<'a> {
                 Image::try_load_with_cache(
                     self.album().image_path(),
                     covers_path,
-                    &self.track.title.file_safe(),
+                    self.track.title.file_safe(),
                     transform,
                 )
             })
