@@ -143,7 +143,7 @@ impl Text {
         use crate::utils::split_article;
 
         let file_safe = self.file_safe();
-        if let Some((article, rest)) = split_article(&file_safe) {
+        if let Some((article, rest)) = split_article(file_safe) {
             format!("{}, {}", rest, article).into()
         } else {
             file_safe.into()
@@ -302,10 +302,11 @@ impl Add<&Text> for Text {
         let file_safe = if let Some(mut a) = self.file_safe {
             a.push_str(other.file_safe());
             Some(a)
-        } else if let Some(ref b) = other.file_safe {
-            Some(format!("{}{}", self.ascii(), b))
         } else {
-            None
+            other
+                .file_safe
+                .as_ref()
+                .map(|b| format!("{}{}", self.ascii(), b))
         };
 
         let ascii = self
@@ -333,10 +334,10 @@ impl Add<Text> for &Text {
         let file_safe = if let Some(mut b) = other.file_safe {
             b.insert_str(0, self.file_safe());
             Some(b)
-        } else if let Some(ref a) = self.file_safe {
-            Some(format!("{}{}", a, other.ascii()))
         } else {
-            None
+            self.file_safe
+                .as_ref()
+                .map(|a| format!("{}{}", a, other.ascii()))
         };
 
         let ascii = self
