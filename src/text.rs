@@ -3,177 +3,6 @@ use serde::{de, ser, Deserialize, Serialize};
 use std::borrow::Cow;
 use std::ops::{Add, AddAssign};
 
-/// Adds two cows together, reusing allocations if possible.
-fn add_cows<'a>(left: Cow<'a, str>, right: Cow<'a, str>) -> String {
-    if let Cow::Owned(mut left) = left {
-        left.push_str(&right);
-        left
-    } else if let Cow::Owned(mut right) = right {
-        right.insert_str(0, &left);
-        right
-    } else {
-        format!("{}{}", left, right)
-    }
-}
-
-fn calculate_ascii(s: &str) -> Option<String> {
-    use unicode_normalization::UnicodeNormalization;
-
-    if s.is_ascii() {
-        return None;
-    }
-
-    fn char_ascii(c: char) -> Option<char> {
-        if c.is_ascii() {
-            Some(c)
-        } else if c == '“' || c == '”' {
-            Some('"')
-        } else if c == '‘' || c == '’' {
-            Some('\'')
-        } else {
-            None
-        }
-    }
-
-    s.nfkd().filter_map(char_ascii).collect::<String>().into()
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-/// The ASCII value of a piece of text.
-enum Ascii {
-    /// ASCII is same as the regular value.
-    Same,
-
-    /// ASCII is not the same as the regular value.
-    Different {
-        /// The ASCII's value.
-        value: Cow<'static, str>,
-
-        /// If the ASCII is overridden or calculated.
-        is_overridden: bool,
-    },
-}
-
-// Helper macro that passes on owned Cow values.
-macro_rules! for_value {
-    ($ascii:ident, $text:ident) => {
-        match $ascii {
-            Self::Same => Cow::Borrowed($text),
-            Self::Different { value, .. } => value,
-        }
-    };
-    (ref $ascii:ident, $text:ident) => {
-        Cow::Borrowed($ascii.for_value($text))
-    };
-}
-
-impl Ascii {
-    /// Returns an ASCII for the value that's overridden.
-    fn overridden(value: Cow<'static, str>) -> Self {
-        Self::Different {
-            value,
-            is_overridden: true,
-        }
-    }
-
-    /// Returns an ASCII for the value that isn't overridden.
-    fn calculated(value: String) -> Self {
-        Self::Different {
-            value: value.into(),
-            is_overridden: false,
-        }
-    }
-
-    /// Return the inner ASCII string if it is different than the value.
-    fn inner(&self) -> Option<&str> {
-        match self {
-            Ascii::Same => None,
-            Ascii::Different { value, .. } => Some(value),
-        }
-    }
-
-    /// Return the ASCII string, or `value` if the ASCII is the same.
-    fn for_value<'a>(&'a self, value: &'a str) -> &'a str {
-        self.inner().unwrap_or(value)
-    }
-
-    /// Returns if the ASCII value is manually overridden.
-    fn is_overridden(&self) -> bool {
-        match self {
-            Self::Same => false,
-            Self::Different { is_overridden, .. } => *is_overridden,
-        }
-    }
-
-    /// Adds an owned Ascii to an owned Ascii.
-    fn add_owned_to_owned(self, left: &str, other: Ascii, right: &str) -> Ascii {
-        if self == Self::Same && other == Self::Same {
-            return Self::Same;
-        }
-
-        let is_overridden = self.is_overridden() || other.is_overridden();
-        let left = for_value!(self, left);
-        let right = for_value!(other, right);
-        let value = add_cows(left, right).into();
-
-        Self::Different {
-            value,
-            is_overridden,
-        }
-    }
-
-    /// Adds an owned `Ascii` to a borrowed `Ascii`.
-    fn add_owned_to_ref(self, left: &str, other: &Ascii, right: &str) -> Ascii {
-        if self == Self::Same && other == &Self::Same {
-            return Self::Same;
-        }
-
-        let is_overridden = self.is_overridden() || other.is_overridden();
-        let left = for_value!(self, left);
-        let right = for_value!(ref other, right);
-        let value = add_cows(left, right).into();
-
-        Self::Different {
-            value,
-            is_overridden,
-        }
-    }
-
-    /// Adds a borrowed `Ascii` to an owned `Ascii`.
-    fn add_ref_to_owned(&self, left: &str, other: Ascii, right: &str) -> Ascii {
-        if self == &Self::Same && other == Self::Same {
-            return Self::Same;
-        }
-
-        let is_overridden = self.is_overridden() || other.is_overridden();
-        let left = for_value!(ref self, left);
-        let right = for_value!(other, right);
-        let value = add_cows(left, right).into();
-
-        Self::Different {
-            value,
-            is_overridden,
-        }
-    }
-
-    /// Adds a borrowed `Ascii` to a borrowed `Ascii`.
-    fn add_ref_to_ref(&self, left: &str, other: &Ascii, right: &str) -> Ascii {
-        if let (Self::Same, Self::Same) = (self, other) {
-            return Self::Same;
-        }
-
-        let is_overridden = self.is_overridden() || other.is_overridden();
-        let left = for_value!(ref self, left);
-        let right = for_value!(ref other, right);
-        let value = add_cows(left, right).into();
-
-        Self::Different {
-            value,
-            is_overridden,
-        }
-    }
-}
-
 /// A piece of text with different representations.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Text {
@@ -640,6 +469,177 @@ impl<'de> Deserialize<'de> for Text {
         }
 
         deserializer.deserialize_any(Visitor)
+    }
+}
+
+/// Adds two cows together, reusing allocations if possible.
+fn add_cows<'a>(left: Cow<'a, str>, right: Cow<'a, str>) -> String {
+    if let Cow::Owned(mut left) = left {
+        left.push_str(&right);
+        left
+    } else if let Cow::Owned(mut right) = right {
+        right.insert_str(0, &left);
+        right
+    } else {
+        format!("{}{}", left, right)
+    }
+}
+
+fn calculate_ascii(s: &str) -> Option<String> {
+    use unicode_normalization::UnicodeNormalization;
+
+    if s.is_ascii() {
+        return None;
+    }
+
+    fn char_ascii(c: char) -> Option<char> {
+        if c.is_ascii() {
+            Some(c)
+        } else if c == '“' || c == '”' {
+            Some('"')
+        } else if c == '‘' || c == '’' {
+            Some('\'')
+        } else {
+            None
+        }
+    }
+
+    s.nfkd().filter_map(char_ascii).collect::<String>().into()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// The ASCII value of a piece of text.
+enum Ascii {
+    /// ASCII is same as the regular value.
+    Same,
+
+    /// ASCII is not the same as the regular value.
+    Different {
+        /// The ASCII's value.
+        value: Cow<'static, str>,
+
+        /// If the ASCII is overridden or calculated.
+        is_overridden: bool,
+    },
+}
+
+// Helper macro that passes on owned Cow values.
+macro_rules! for_value {
+    ($ascii:ident, $text:ident) => {
+        match $ascii {
+            Self::Same => Cow::Borrowed($text),
+            Self::Different { value, .. } => value,
+        }
+    };
+    (ref $ascii:ident, $text:ident) => {
+        Cow::Borrowed($ascii.for_value($text))
+    };
+}
+
+impl Ascii {
+    /// Returns an ASCII for the value that's overridden.
+    fn overridden(value: Cow<'static, str>) -> Self {
+        Self::Different {
+            value,
+            is_overridden: true,
+        }
+    }
+
+    /// Returns an ASCII for the value that isn't overridden.
+    fn calculated(value: String) -> Self {
+        Self::Different {
+            value: value.into(),
+            is_overridden: false,
+        }
+    }
+
+    /// Return the inner ASCII string if it is different than the value.
+    fn inner(&self) -> Option<&str> {
+        match self {
+            Ascii::Same => None,
+            Ascii::Different { value, .. } => Some(value),
+        }
+    }
+
+    /// Return the ASCII string, or `value` if the ASCII is the same.
+    fn for_value<'a>(&'a self, value: &'a str) -> &'a str {
+        self.inner().unwrap_or(value)
+    }
+
+    /// Returns if the ASCII value is manually overridden.
+    fn is_overridden(&self) -> bool {
+        match self {
+            Self::Same => false,
+            Self::Different { is_overridden, .. } => *is_overridden,
+        }
+    }
+
+    /// Adds an owned Ascii to an owned Ascii.
+    fn add_owned_to_owned(self, left: &str, other: Ascii, right: &str) -> Ascii {
+        if self == Self::Same && other == Self::Same {
+            return Self::Same;
+        }
+
+        let is_overridden = self.is_overridden() || other.is_overridden();
+        let left = for_value!(self, left);
+        let right = for_value!(other, right);
+        let value = add_cows(left, right).into();
+
+        Self::Different {
+            value,
+            is_overridden,
+        }
+    }
+
+    /// Adds an owned `Ascii` to a borrowed `Ascii`.
+    fn add_owned_to_ref(self, left: &str, other: &Ascii, right: &str) -> Ascii {
+        if self == Self::Same && other == &Self::Same {
+            return Self::Same;
+        }
+
+        let is_overridden = self.is_overridden() || other.is_overridden();
+        let left = for_value!(self, left);
+        let right = for_value!(ref other, right);
+        let value = add_cows(left, right).into();
+
+        Self::Different {
+            value,
+            is_overridden,
+        }
+    }
+
+    /// Adds a borrowed `Ascii` to an owned `Ascii`.
+    fn add_ref_to_owned(&self, left: &str, other: Ascii, right: &str) -> Ascii {
+        if self == &Self::Same && other == Self::Same {
+            return Self::Same;
+        }
+
+        let is_overridden = self.is_overridden() || other.is_overridden();
+        let left = for_value!(ref self, left);
+        let right = for_value!(other, right);
+        let value = add_cows(left, right).into();
+
+        Self::Different {
+            value,
+            is_overridden,
+        }
+    }
+
+    /// Adds a borrowed `Ascii` to a borrowed `Ascii`.
+    fn add_ref_to_ref(&self, left: &str, other: &Ascii, right: &str) -> Ascii {
+        if let (Self::Same, Self::Same) = (self, other) {
+            return Self::Same;
+        }
+
+        let is_overridden = self.is_overridden() || other.is_overridden();
+        let left = for_value!(ref self, left);
+        let right = for_value!(ref other, right);
+        let value = add_cows(left, right).into();
+
+        Self::Different {
+            value,
+            is_overridden,
+        }
     }
 }
 
