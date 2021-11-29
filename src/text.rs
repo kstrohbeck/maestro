@@ -169,22 +169,46 @@ impl Text {
         self.ascii.is_overridden()
     }
 
-    /// Return a simplified version of the Text.
+    /// Return the simplified text.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use std::borrow::Cow;
+    /// # use maestro::Text;
+    /// let text = Text::from("the bók");
+    /// assert_eq!(Cow::Borrowed(&text), text.simplified());
+    /// ```
+    ///
+    /// ```rust
+    /// # use std::borrow::Cow;
+    /// # use maestro::Text;
+    /// let text = Text::new("the bók", Some("the bok"));
+    /// assert_eq!(Cow::<Text>::Owned(Text::from("the bók")), text.simplified());
+    /// ```
+    pub fn simplified(&self) -> Cow<Self> {
+        match self.simplified_version() {
+            Some(simple) => Cow::Owned(simple),
+            None => Cow::Borrowed(self),
+        }
+    }
+
+    /// Return a simplified version of the Text if it is not already simplified.
     ///
     /// # Examples
     ///
     /// ```rust
     /// # use maestro::Text;
     /// let text = Text::from("the bók");
-    /// assert_eq!(None, text.simplified());
+    /// assert_eq!(None, text.simplified_version());
     /// ```
     ///
     /// ```rust
     /// # use maestro::Text;
     /// let text = Text::new("the bók", Some("the bok"));
-    /// assert_eq!(Some(Text::from("the bók")), text.simplified());
+    /// assert_eq!(Some(Text::from("the bók")), text.simplified_version());
     /// ```
-    pub fn simplified(&self) -> Option<Self> {
+    pub fn simplified_version(&self) -> Option<Self> {
         let ovr = match &self.ascii {
             Ascii::Different {
                 value,
@@ -928,25 +952,25 @@ mod tests {
         #[test]
         fn ascii_string_is_already_simplified() {
             let text = Text::from("bok");
-            assert_eq!(None, text.simplified());
+            assert_eq!(Cow::Borrowed(&text), text.simplified());
         }
 
         #[test]
         fn calculated_string_is_already_simplified() {
             let text = Text::from("bók");
-            assert_eq!(None, text.simplified());
+            assert_eq!(Cow::Borrowed(&text), text.simplified());
         }
 
         #[test]
         fn overridden_string_different_from_calc_is_already_simplified() {
             let text = Text::new("bók", Some("book"));
-            assert_eq!(None, text.simplified());
+            assert_eq!(Cow::Borrowed(&text), text.simplified());
         }
 
         #[test]
         fn overridden_string_different_from_calc_can_be_simplified() {
             let text = Text::new("bók", Some("bok"));
-            assert_eq!(Some(Text::from("bók")), text.simplified());
+            assert_eq!(Cow::<Text>::Owned(Text::from("bók")), text.simplified());
         }
     }
 
