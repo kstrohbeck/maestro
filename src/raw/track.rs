@@ -107,28 +107,46 @@ impl Track {
         self
     }
 
-    pub fn simplify(&mut self, artists: &[Text], year: Option<usize>, genre: Option<&Text>) {
-        match (&self.filename, self.filename()) {
-            (Some(ref x), Some(ref y)) if x == y => {
-                println!("Removing filename for \"{}\" (original \"{}\")", y, x);
-                self.filename = None;
+    pub fn simplified(&self, artists: &[Text], year: Option<usize>, genre: Option<&Text>) -> Self {
+        fn simplify(t: &Text) -> Text {
+            t.simplified().into_owned()
+        }
+
+        fn diff_or_none<T: PartialEq>(a: Option<T>, b: Option<&T>) -> Option<T> {
+            match (&a, b) {
+                (Some(a), Some(b)) if a == b => None,
+                _ => a,
             }
-            _ => {}
         }
 
-        match self.artists() {
-            Some(ref x) if x == &artists => self.artists = None,
-            _ => {}
+        fn map_simplified(a: &Option<Text>) -> Option<Text> {
+            a.as_ref().map(simplify)
         }
 
-        match (&self.year, year) {
-            (Some(ref x), Some(ref y)) if x == y => self.year = None,
-            _ => {}
+        fn map_simplified_vec(a: &Option<Vec<Text>>) -> Option<Vec<Text>> {
+            a.as_ref()
+                .map(|a| a.iter().map(simplify).collect::<Vec<_>>())
         }
 
-        match (&self.genre, genre) {
-            (Some(ref x), Some(ref y)) if &x == y => self.genre = None,
-            _ => {}
+        let title = simplify(&self.title);
+        // TODO: Can we use diff_or_none?
+        let artists = map_simplified_vec(&self.artists).filter(|ta| &ta[..] != artists);
+        let year = diff_or_none(self.year, year.as_ref());
+        let genre = diff_or_none(map_simplified(&self.genre), genre);
+        let comment = map_simplified(&self.comment);
+        let lyrics = map_simplified(&self.lyrics);
+        let featuring = map_simplified_vec(&self.featuring);
+        // TODO: Check if we can remove filename.
+
+        Self {
+            title,
+            artists,
+            year,
+            genre,
+            comment,
+            lyrics,
+            featuring,
+            filename: self.filename.clone(),
         }
     }
 }
