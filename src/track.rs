@@ -5,7 +5,7 @@ use crate::{
     utils::{comma_separated, num_digits},
     Text,
 };
-use id3::{Tag, Version};
+use id3::{Tag, TagLike, Version};
 use once_cell::sync::OnceCell;
 use std::{
     borrow::Cow,
@@ -327,6 +327,7 @@ impl<'a> Track<'a> {
         }
 
         // TODO: Check for duplicate and erroneous frames.
+        // TODO: Simplify all these error checks.
 
         if errors.is_empty() {
             Ok(())
@@ -351,7 +352,7 @@ impl<'a> Track<'a> {
             .read(true)
             .open(&path)
             .unwrap();
-        Tag::remove_from(&mut file).unwrap();
+        Tag::remove_from_file(&mut file).unwrap();
 
         Ok(())
     }
@@ -386,18 +387,19 @@ impl<'a> Track<'a> {
         }
 
         if let Some(comment) = self.id3_comment() {
-            tag.add_comment(comment);
+            tag.add_frame(comment);
+            // tag.add_comment(comment);
         }
 
         if let Some(lyrics) = self.id3_lyrics() {
-            tag.add_lyrics(lyrics);
+            tag.add_frame(lyrics);
         }
 
         if let Some(picture) = self
             .cover_id3_picture()
             .map_err(UpdateId3Error::CoverError)?
         {
-            tag.add_picture(picture);
+            tag.add_frame(picture);
         }
 
         Ok(tag)
@@ -476,7 +478,7 @@ impl<'a> Track<'a> {
             .read(true)
             .open(&path)
             .unwrap();
-        Tag::remove_from(&mut file).unwrap();
+        Tag::remove_from_file(&mut file).unwrap();
 
         let mut tag = Tag::new();
 
@@ -507,7 +509,7 @@ impl<'a> Track<'a> {
                 description: "".to_string(),
                 data: data.clone(),
             };
-            tag.add_picture(cover);
+            tag.add_frame(cover);
         }
 
         tag.write_to_path(path, Version::Id3v24)

@@ -1,5 +1,6 @@
 use super::disc::Disc;
 use crate::Text;
+use id3::TagLike;
 use serde::{de, ser, Deserialize, Serialize};
 use std::{borrow::Cow, fmt, path::Path};
 
