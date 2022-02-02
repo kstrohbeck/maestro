@@ -199,6 +199,10 @@ impl Album {
         self.discs.len()
     }
 
+    pub fn num_tracks(&self) -> usize {
+        self.discs.iter().map(|d| d.num_tracks()).sum()
+    }
+
     pub fn with_title<T: Into<Text>>(mut self, title: T) -> Self {
         self.title = title.into();
         self

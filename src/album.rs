@@ -97,6 +97,10 @@ impl Album {
             .map(move |(disc, disc_number)| Disc::new(self, disc, disc_number))
     }
 
+    pub fn num_tracks(&self) -> usize {
+        self.album.num_tracks()
+    }
+
     pub fn tracks(&self) -> Tracks {
         Tracks::new(self)
     }
