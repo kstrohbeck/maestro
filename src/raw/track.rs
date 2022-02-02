@@ -1,8 +1,6 @@
 use crate::Text;
 use serde::{de, ser, Deserialize, Serialize};
 
-// TODO: Add "featuring" property.
-
 /// A music track in an album.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Track {
@@ -32,6 +30,7 @@ pub struct Track {
 }
 
 impl Track {
+    /// Create a new track with just the title set.
     pub fn new<T>(title: T) -> Track
     where
         T: Into<Text>,
@@ -107,48 +106,49 @@ impl Track {
         self
     }
 
-    pub fn simplified(&self, artists: &[Text], year: Option<usize>, genre: Option<&Text>) -> Self {
-        fn simplify(t: &Text) -> Text {
-            t.simplified().into_owned()
-        }
+    // TODO: Does this function do anything?
+    // pub fn simplified(&self, artists: &[Text], year: Option<usize>, genre: Option<&Text>) -> Self {
+    //     fn simplify(t: &Text) -> Text {
+    //         t.simplified().into_owned()
+    //     }
 
-        fn diff_or_none<T: PartialEq>(a: Option<T>, b: Option<&T>) -> Option<T> {
-            match (&a, b) {
-                (Some(a), Some(b)) if a == b => None,
-                _ => a,
-            }
-        }
+    //     fn diff_or_none<T: PartialEq>(a: Option<T>, b: Option<&T>) -> Option<T> {
+    //         match (&a, b) {
+    //             (Some(a), Some(b)) if a == b => None,
+    //             _ => a,
+    //         }
+    //     }
 
-        fn map_simplified(a: &Option<Text>) -> Option<Text> {
-            a.as_ref().map(simplify)
-        }
+    //     fn map_simplified(a: &Option<Text>) -> Option<Text> {
+    //         a.as_ref().map(simplify)
+    //     }
 
-        fn map_simplified_vec(a: &Option<Vec<Text>>) -> Option<Vec<Text>> {
-            a.as_ref()
-                .map(|a| a.iter().map(simplify).collect::<Vec<_>>())
-        }
+    //     fn map_simplified_vec(a: &Option<Vec<Text>>) -> Option<Vec<Text>> {
+    //         a.as_ref()
+    //             .map(|a| a.iter().map(simplify).collect::<Vec<_>>())
+    //     }
 
-        let title = simplify(&self.title);
-        // TODO: Can we use diff_or_none?
-        let artists = map_simplified_vec(&self.artists).filter(|ta| &ta[..] != artists);
-        let year = diff_or_none(self.year, year.as_ref());
-        let genre = diff_or_none(map_simplified(&self.genre), genre);
-        let comment = map_simplified(&self.comment);
-        let lyrics = map_simplified(&self.lyrics);
-        let featuring = map_simplified_vec(&self.featuring);
-        // TODO: Check if we can remove filename.
+    //     let title = simplify(&self.title);
+    //     // TODO: Can we use diff_or_none?
+    //     let artists = map_simplified_vec(&self.artists).filter(|ta| &ta[..] != artists);
+    //     let year = diff_or_none(self.year, year.as_ref());
+    //     let genre = diff_or_none(map_simplified(&self.genre), genre);
+    //     let comment = map_simplified(&self.comment);
+    //     let lyrics = map_simplified(&self.lyrics);
+    //     let featuring = map_simplified_vec(&self.featuring);
+    //     // TODO: Check if we can remove filename.
 
-        Self {
-            title,
-            artists,
-            year,
-            genre,
-            comment,
-            lyrics,
-            featuring,
-            filename: self.filename.clone(),
-        }
-    }
+    //     Self {
+    //         title,
+    //         artists,
+    //         year,
+    //         genre,
+    //         comment,
+    //         lyrics,
+    //         featuring,
+    //         filename: self.filename.clone(),
+    //     }
+    // }
 }
 
 impl Serialize for Track {
@@ -156,6 +156,7 @@ impl Serialize for Track {
     where
         S: ser::Serializer,
     {
+        use crate::utils::{ser_one_or_more, ser_opt};
         use serde::ser::SerializeStruct;
 
         let num_fields = [
@@ -178,30 +179,18 @@ impl Serialize for Track {
         }
 
         let mut state = serializer.serialize_struct("Track", num_fields)?;
-
         state.serialize_field("title", &self.title)?;
-
         if let Some(artists) = self.artists() {
-            if artists.len() == 1 {
-                state.serialize_field("artist", &artists[0])?;
-            } else {
-                state.serialize_field("artists", &artists)?;
-            }
+            ser_one_or_more(&mut state, artists, "artist", "artists")?;
         }
-
-        ser_field!(state, "year", self.year);
-        ser_field!(state, "genre", self.genre());
-        ser_field!(state, "comment", self.comment());
-        ser_field!(state, "lyrics", self.lyrics());
+        ser_opt(&mut state, self.year, "year")?;
+        ser_opt(&mut state, self.genre(), "genre")?;
+        ser_opt(&mut state, self.comment(), "comment")?;
+        ser_opt(&mut state, self.lyrics(), "lyrics")?;
         if let Some(feat) = self.featuring() {
-            if feat.len() == 1 {
-                state.serialize_field("featuring", &feat[0])?;
-            } else {
-                state.serialize_field("featuring", feat)?;
-            }
+            ser_one_or_more(&mut state, feat, "featuring", "featuring")?;
         }
-        ser_field!(state, "filename", self.filename());
-
+        ser_opt(&mut state, self.filename(), "filename")?;
         state.end()
     }
 }

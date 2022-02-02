@@ -417,6 +417,7 @@ impl<'a> Track<'a> {
         let tag = self.tag()?;
 
         if let Ok(old_tag) = Tag::read_from_path(self.path()) {
+            // FIXME: This doesn't actually check for real equality.
             if old_tag == tag {
                 return Ok(());
             }

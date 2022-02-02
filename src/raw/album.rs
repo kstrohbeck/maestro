@@ -234,6 +234,7 @@ impl Serialize for Album {
     where
         S: ser::Serializer,
     {
+        use crate::utils::{ser_one_or_more, ser_opt};
         use ser::SerializeStruct;
 
         let num_fields = [self.year.is_some(), self.genre.is_some()]
@@ -244,24 +245,11 @@ impl Serialize for Album {
             + 3;
 
         let mut state = serializer.serialize_struct("Album", num_fields)?;
-
         state.serialize_field("title", &self.title)?;
-
-        if self.artists.len() == 1 {
-            state.serialize_field("artist", &self.artists[0])?;
-        } else {
-            state.serialize_field("artists", &self.artists)?;
-        }
-
-        ser_field!(state, "year", self.year);
-        ser_field!(state, "genre", self.genre());
-
-        if self.discs.len() == 1 {
-            state.serialize_field("tracks", &self.discs[0])?;
-        } else {
-            state.serialize_field("discs", &self.discs)?;
-        }
-
+        ser_one_or_more(&mut state, &self.artists, "artist", "artists")?;
+        ser_opt(&mut state, self.year, "year")?;
+        ser_opt(&mut state, self.genre(), "genre")?;
+        ser_one_or_more(&mut state, &self.discs, "tracks", "discs")?;
         state.end()
     }
 }

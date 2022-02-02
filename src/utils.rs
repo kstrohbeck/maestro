@@ -150,6 +150,37 @@ pub fn make_file_safe(s: &str) -> Option<String> {
     Some(accum)
 }
 
+/// Serialize a slice as either its singular member or a plural whole.
+pub fn ser_one_or_more<S, T>(
+    state: &mut S,
+    elems: &[T],
+    singular: &'static str,
+    plural: &'static str,
+) -> Result<(), S::Error>
+where
+    S: serde::ser::SerializeStruct,
+    T: serde::Serialize,
+{
+    if elems.len() == 1 {
+        state.serialize_field(singular, &elems[0])
+    } else {
+        state.serialize_field(plural, elems)
+    }
+}
+
+/// Serialize a value to a struct only if it exists.
+pub fn ser_opt<S, T>(state: &mut S, field: Option<T>, key: &'static str) -> Result<(), S::Error>
+where
+    S: serde::ser::SerializeStruct,
+    T: serde::Serialize,
+{
+    if let Some(val) = field {
+        state.serialize_field(key, &val)
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
