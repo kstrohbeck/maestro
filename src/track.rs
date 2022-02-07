@@ -5,13 +5,15 @@ use crate::{
     utils::{comma_separated, num_digits},
     Text,
 };
+use anyhow::{Context, Error as AnyhowError, Result as AnyhowResult};
 use id3::{Tag, TagLike, Version};
 use once_cell::sync::OnceCell;
 use std::{
     borrow::Cow,
-    fs::{self, OpenOptions},
+    fs,
     path::{Path, PathBuf},
 };
+use thiserror::Error;
 
 pub struct Track<'a> {
     disc: Cow<'a, Disc<'a>>,
@@ -336,28 +338,14 @@ impl<'a> Track<'a> {
         }
     }
 
-    pub fn clear(&self) -> Result<(), UpdateId3Error> {
-        // Check if the file exists before trying to create a tag.
+    pub fn clear(&self) -> AnyhowResult<()> {
         let path = self.path();
-        if !path.exists() {
-            return Err(UpdateId3Error::FileNotFound);
-        }
-
-        // Remove the old tag.
-        // TODO: Remove unwraps.
-        // TODO: This seems redundant with the path check? We should remove that.
-        // TODO: See if we can avoid doing this.
-        let mut file = OpenOptions::new()
-            .write(true)
-            .read(true)
-            .open(&path)
-            .unwrap();
-        Tag::remove_from_file(&mut file).unwrap();
-
-        Ok(())
+        Tag::remove_from_path(&path)
+            .with_context(|| format!("Couldn't remove tag from {:?}", &path))
+            .map(|_| ())
     }
 
-    fn tag(&self) -> Result<Tag, UpdateId3Error> {
+    fn tag(&self) -> AnyhowResult<Tag> {
         let mut tag = Tag::new();
 
         tag.set_title(self.title().value());
@@ -395,27 +383,16 @@ impl<'a> Track<'a> {
             tag.add_frame(lyrics);
         }
 
-        if let Some(picture) = self
-            .cover_id3_picture()
-            .map_err(UpdateId3Error::CoverError)?
-        {
+        if let Some(picture) = self.cover_id3_picture().context("Couldn't load cover")? {
             tag.add_frame(picture);
         }
 
         Ok(tag)
     }
 
-    pub fn update_id3(&self) -> Result<(), UpdateId3Error> {
-        // TODO: Use clear?
-        // Check if the file exists before trying to create a tag.
+    pub fn update_id3(&self) -> AnyhowResult<()> {
         let path = self.path();
-        if !path.exists() {
-            return Err(UpdateId3Error::FileNotFound);
-        }
-
-        // TODO: Make a special error for this.
-        let tag = self.tag()?;
-
+        let tag = self.tag().context("Couldn't create tag")?;
         if let Ok(old_tag) = Tag::read_from_path(self.path()) {
             // FIXME: This doesn't actually check for real equality.
             if old_tag == tag {
@@ -424,62 +401,44 @@ impl<'a> Track<'a> {
         }
 
         // Remove the old tag.
-        // TODO: This seems redundant with the path check? We should remove that.
         // TODO: See if we can avoid doing this.
-        self.clear()?;
+        Tag::remove_from_path(&path)
+            .with_context(|| format!("Couldn't remove tag from {:?}", path))?;
 
-        tag.write_to_path(path, Version::Id3v24)
-            .map_err(UpdateId3Error::WriteError)
+        tag.write_to_path(&path, Version::Id3v24)
+            .with_context(|| format!("Couldn't write tag to {:?}", &path))
     }
 
-    pub fn export<P: AsRef<Path>>(&self, folder: P) -> Result<(), UpdateId3VwError> {
+    pub fn export<P: Into<PathBuf>>(&self, folder: P) -> AnyhowResult<()> {
         let orig_path = self.path();
-        if !orig_path.exists() {
-            return Err(UpdateId3VwError::FileNotFound);
-        }
+        let mut path: PathBuf = folder.into();
 
-        let mut folder: Cow<Path> = folder.as_ref().into();
-        if !folder.exists() {
-            return Err(UpdateId3VwError::FolderNotFound);
-        }
-
-        // Check for disc, if it's needed.
+        // If we have a disc, add it to the path and make sure it exists.
         if let Some(disc) = self.disc().filename() {
-            folder = folder.join(disc).into();
-            // TODO: Remove unwrap.
-            std::fs::create_dir_all(&folder).unwrap();
+            path.push(disc);
+            std::fs::create_dir_all(&path)
+                .with_context(|| format!("Couldn't create {:?}", &path))?;
         }
 
-        let path = folder.join(&self.filename_vw());
-        fs::copy(orig_path, &path).map_err(UpdateId3VwError::CopyError)?;
-
-        Ok(())
+        path.push(self.filename_vw());
+        fs::copy(&orig_path, &path)
+            .with_context(|| format!("Couldn't copy {:?} to {:?}", &orig_path, &path))
+            .map(|_| ())
     }
 
-    pub fn update_id3_vw<P: AsRef<Path>>(&self, folder: P) -> Result<(), UpdateId3VwError> {
+    pub fn update_id3_vw<P: AsRef<Path>>(&self, folder: P) -> AnyhowResult<()> {
         let orig_path = self.path();
-        if !orig_path.exists() {
-            return Err(UpdateId3VwError::FileNotFound);
-        }
-
         let folder = folder.as_ref();
-        if !folder.exists() {
-            return Err(UpdateId3VwError::FolderNotFound);
-        }
 
         // Copy file to destination.
         let path = folder.join(&self.filename_vw() as &str);
-        fs::copy(orig_path, &path).map_err(UpdateId3VwError::CopyError)?;
+        fs::copy(&orig_path, &path)
+            .with_context(|| format!("Couldn't copy {:?} to {:?}", &orig_path, &path))?;
 
         // Remove the old tag.
-        // TODO: Remove unwraps.
         // TODO: See if we can avoid doing this.
-        let mut file = OpenOptions::new()
-            .write(true)
-            .read(true)
-            .open(&path)
-            .unwrap();
-        Tag::remove_from_file(&mut file).unwrap();
+        Tag::remove_from_path(&path)
+            .with_context(|| format!("Couldn't remove tag from {:?}", path))?;
 
         let mut tag = Tag::new();
 
@@ -501,9 +460,7 @@ impl<'a> Track<'a> {
 
         tag.set_album(self.album().title().ascii());
 
-        if let Some(Image { data, format }) =
-            self.cover_vw().map_err(UpdateId3VwError::CoverError)?
-        {
+        if let Some(Image { data, format }) = self.cover_vw().context("Couldn't load cover")? {
             let cover = id3::frame::Picture {
                 mime_type: format.mime().to_string(),
                 picture_type: id3::frame::PictureType::CoverFront,
@@ -513,8 +470,8 @@ impl<'a> Track<'a> {
             tag.add_frame(cover);
         }
 
-        tag.write_to_path(path, Version::Id3v24)
-            .map_err(UpdateId3VwError::WriteError)
+        tag.write_to_path(&path, Version::Id3v24)
+            .with_context(|| format!("Couldn't write tag to {:?}", path))
     }
 
     fn id3_date_recorded(&self) -> Option<id3::Timestamp> {
@@ -545,43 +502,39 @@ impl<'a> Track<'a> {
         })
     }
 
-    fn cover_id3_picture(&self) -> Result<Option<id3::frame::Picture>, LoadWithCacheError> {
-        Ok(self.cover()?.map(|img| id3::frame::Picture {
-            mime_type: img.format.mime().to_string(),
-            picture_type: id3::frame::PictureType::CoverFront,
-            description: "".to_string(),
-            data: img.data.clone(),
-        }))
+    fn cover_id3_picture(&self) -> AnyhowResult<Option<id3::frame::Picture>> {
+        let frame = self
+            .cover()
+            .context("Couldn't load cover")?
+            .map(|img| id3::frame::Picture {
+                mime_type: img.format.mime().to_string(),
+                picture_type: id3::frame::PictureType::CoverFront,
+                description: "".to_string(),
+                data: img.data.clone(),
+            });
+        Ok(frame)
     }
 }
 
-// TODO: Implement Error.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ValidateError {
-    CouldntReadTag(id3::Error),
+    #[error("couldn't read tag")]
+    CouldntReadTag(#[from] id3::Error),
+
+    #[error("missing frame {0}")]
     MissingFrame(&'static str),
+
+    #[error("duplicate frame {0}")]
     DuplicateFrame(&'static str),
+
+    #[error("incorrect data in frame {0}")]
     IncorrectDataInFrame(&'static str, String),
+
+    #[error("unexpected frame {0}")]
     UnexpectedFrame(&'static str),
-    CouldntLoadCover(LoadWithCacheError),
-}
 
-// TODO: Implement Error.
-#[derive(Debug)]
-pub enum UpdateId3Error {
-    FileNotFound,
-    CoverError(LoadWithCacheError),
-    WriteError(id3::Error),
-}
-
-// TODO: Implement Error.
-#[derive(Debug)]
-pub enum UpdateId3VwError {
-    FileNotFound,
-    FolderNotFound,
-    CopyError(std::io::Error),
-    CoverError(LoadWithCacheError),
-    WriteError(id3::Error),
+    #[error("couldn't load cover")]
+    CouldntLoadCover(#[from] anyhow::Error),
 }
 
 #[cfg(test)]
