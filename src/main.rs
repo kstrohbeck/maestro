@@ -1,8 +1,9 @@
 extern crate maestro;
 
+use anyhow::{Context, Result as AnyhowResult};
 use indicatif::{ProgressBar, ProgressStyle};
-use maestro::album::Album;
-use std::path::PathBuf;
+use maestro::{album::Album, track::Track};
+use std::{fmt::Debug, path::PathBuf};
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -83,7 +84,54 @@ impl std::str::FromStr for ExportFormat {
     }
 }
 
-fn main() {
+fn run_all_tracks<F, E>(folder: PathBuf, action: &'static str, mut func: F) -> AnyhowResult<()>
+where
+    F: FnMut(&Track) -> Result<(), E>,
+    // TODO: Change to Error + Display.
+    E: Debug,
+{
+    run_all_tracks_with_ctx(folder, action, |_| (), |_, track| func(track))
+}
+
+fn run_all_tracks_with_ctx<F, G, T, E>(
+    folder: PathBuf,
+    action: &'static str,
+    mut ctx: G,
+    mut func: F,
+) -> AnyhowResult<()>
+where
+    G: FnOnce(&Album) -> T,
+    F: FnMut(&mut T, &Track) -> Result<(), E>,
+    E: Debug,
+{
+    let album = Album::load(folder).context("Couldn't load album")?;
+    let mut data = ctx(&album);
+    let style = ProgressStyle::default_bar().template("{bar} ({pos}/{len}): {msg}");
+    let progress_bar = ProgressBar::new(album.num_tracks() as u64).with_style(style);
+    let mut errors = Vec::new();
+
+    for track in album.tracks() {
+        progress_bar.set_message(format!("{} \"{}\"...", action, track.title().value()));
+        if let Err(e) = func(&mut data, &track) {
+            errors.push((track, e));
+        }
+        progress_bar.inc(1);
+    }
+
+    progress_bar.finish_with_message("Finished.");
+
+    if !errors.is_empty() {
+        println!("Errors:");
+        for (track, error) in errors {
+            // TODO: Change to {} when we change the bound on E.
+            println!("\"{}\": {:?}", track.title().value(), error);
+        }
+    }
+
+    Ok(())
+}
+
+fn main() -> AnyhowResult<()> {
     let Opt {
         folder,
         command,
@@ -92,169 +140,60 @@ fn main() {
     } = Opt::from_args();
 
     match command {
-        Command::Update => {
-            // TODO: Don't unwrap.
-            let album = Album::load(folder).unwrap();
-            let style = ProgressStyle::default_bar().template("{bar} ({pos}/{len}): {msg}");
-            let progress_bar = ProgressBar::new(album.num_tracks() as u64).with_style(style);
-            let mut errors = Vec::new();
-
-            for track in album.tracks() {
-                progress_bar.set_message(format!("Updating \"{}\"...", track.title().value()));
-                if let Err(e) = track.update_id3() {
-                    errors.push((track, e));
-                }
-                progress_bar.inc(1);
-            }
-
-            progress_bar.finish_with_message("Finished.");
-
-            if !errors.is_empty() {
-                println!("Errors:");
-                for (track, error) in errors {
-                    // TODO: Change to {} when UpdateId3Error implements Display + Error.
-                    println!("\"{}\": {:?}", track.title().value(), error);
-                }
-            }
-        }
+        Command::Update => run_all_tracks(folder, "Updating", |track| track.update_id3()),
         Command::Export {
             format,
             root,
             output,
         } => {
-            // TODO: Don't unwrap.
-            let album = Album::load(folder).unwrap();
-            let output = output.unwrap_or_else(|| {
-                // TODO: Don't unwrap.
-                let mut root = root.unwrap();
-                let artist = album.artist();
-                let title = album.title();
-                root.push(artist.file_safe());
-                root.push(&title.file_safe());
-                root
-            });
-            // TODO: Don't unwrap.
-            std::fs::create_dir_all(&output).unwrap();
-
-            let style = ProgressStyle::default_bar().template("{bar} ({pos}/{len}): {msg}");
-            let progress_bar = ProgressBar::new(album.num_tracks() as u64).with_style(style);
-            let mut errors = Vec::new();
-
-            for track in album.tracks() {
-                progress_bar.set_message(format!("Copying \"{}\"...", track.title().value()));
-                let res = match format {
+            run_all_tracks_with_ctx(
+                folder,
+                "Copying",
+                |album| {
+                    output.unwrap_or_else(|| {
+                        // TODO: Don't unwrap.
+                        let mut root = root.unwrap();
+                        let artist = album.artist();
+                        let title = album.title();
+                        root.push(artist.file_safe());
+                        root.push(&title.file_safe());
+                        root
+                    })
+                },
+                |output, track| match format {
                     ExportFormat::Full => track.export(&output),
                     ExportFormat::Vw => track.update_id3_vw(&output),
-                };
-                if let Err(e) = res {
-                    errors.push((track, e));
-                }
-                progress_bar.inc(1);
-            }
-
-            progress_bar.finish_with_message("Finished.");
-
-            if !errors.is_empty() {
-                println!("Errors:");
-                for (track, error) in errors {
-                    // TODO: Update to {} when UpdateId3VwError implements Display + Error.
-                    println!("\"{}\": {:?}", track.title().value(), error);
-                }
-            }
+                },
+            )
         }
-        Command::Validate => {
-            // TODO: Don't unwrap.
-            let album = Album::load(folder).unwrap();
-            let style = ProgressStyle::default_bar().template("{bar} ({pos}/{len}): {msg}");
-            let progress_bar = ProgressBar::new(album.num_tracks() as u64).with_style(style);
-            let mut errors = Vec::new();
-
-            for track in album.tracks() {
-                progress_bar.set_message(format!("Validating \"{}\"...", track.title().value()));
-                if let Err(e) = track.validate() {
-                    errors.push((track, e));
-                }
-                progress_bar.inc(1);
-            }
-
-            progress_bar.finish_with_message("Finished.");
-
-            if !errors.is_empty() {
-                println!("Errors:");
-                for (track, error) in errors {
-                    // TODO: Print the errors better.
-                    println!("\"{}\": {:?}", track.title().value(), error);
-                }
-            }
-        }
+        Command::Validate => run_all_tracks(folder, "Validating", |track| track.validate()),
         Command::Show => {
-            let album = Album::load(folder).unwrap();
+            let album = Album::load(folder).context("Couldn't load album")?;
             let stdout = std::io::stdout();
-            serde_yaml::to_writer(stdout, album.raw()).unwrap();
+            serde_yaml::to_writer(stdout, album.raw()).context("Couldn't serialize album to yaml")
             // println!("{:#?}", album);
         }
-        Command::Clear => {
-            let album = Album::load(folder).unwrap();
-            let style = ProgressStyle::default_bar().template("{bar} ({pos}/{len}): {msg}");
-            let progress_bar = ProgressBar::new(album.num_tracks() as u64).with_style(style);
-            let mut errors = Vec::new();
-
-            for track in album.tracks() {
-                progress_bar.set_message(format!("Clearing \"{}\"...", track.title().value()));
-                if let Err(e) = track.clear() {
-                    errors.push((track, e));
-                }
-                progress_bar.inc(1);
-            }
-
-            progress_bar.finish_with_message("Finished.");
-
-            if !errors.is_empty() {
-                println!("Errors:");
-                for (track, error) in errors {
-                    // TODO: Print the errors better.
-                    // TODO: Change to {} when UpdateId3Error implements Display + Error.
-                    println!("\"{}\": {:?}", track.title().value(), error);
-                }
-            }
-        }
+        Command::Clear => run_all_tracks(folder, "Clearing", |track| track.clear()),
         Command::Rename => {
-            use std::fs;
-
-            let album = Album::load(folder).unwrap();
-
-            let style = ProgressStyle::default_bar().template("{bar} ({pos}/{len}): {msg}");
-            let progress_bar = ProgressBar::new(album.num_tracks() as u64).with_style(style);
-            let mut errors = Vec::new();
-
-            for track in album.tracks() {
-                progress_bar.set_message(format!("Renaming \"{}\"...", track.title().value()));
+            run_all_tracks(folder, "Renaming", |track| {
+                // TODO: Move rename() into track.
                 let path = track.path();
                 let can_path = track.canonical_path();
                 if path != can_path && !dry_run {
-                    if let Err(e) = fs::rename(path, can_path) {
-                        errors.push((track, e));
-                    }
+                    std::fs::rename(path, can_path)
+                } else {
+                    Ok(())
                 }
-                progress_bar.inc(1);
-            }
-
-            progress_bar.finish_with_message("Finished.");
-
-            if !errors.is_empty() {
-                println!("Errors:");
-                for (track, error) in errors {
-                    println!("\"{}\": {}", track.title().value(), error);
-                }
-            }
+            })
         }
         Command::Generate => {
             use std::fs;
 
             let album = Album::generate(folder);
-            fs::create_dir_all(album.extras_path()).unwrap();
-            let file = fs::File::create(album.extras_path().join("album.yaml")).unwrap();
-            serde_yaml::to_writer(file, album.raw()).unwrap();
+            fs::create_dir_all(album.extras_path()).context("Couldn't create extras folder")?;
+            let file = fs::File::create(album.extras_path().join("album.yaml"))
+                .context("Couldn't create album.yaml")?;
+            serde_yaml::to_writer(file, album.raw()).context("Couldn't write album to file")
         }
     }
 }
