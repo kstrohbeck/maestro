@@ -20,6 +20,10 @@ impl Disc {
         &self.tracks[..]
     }
 
+    pub fn tracks_mut(&mut self) -> &mut [Track] {
+        &mut self.tracks[..]
+    }
+
     pub fn num_tracks(&self) -> usize {
         self.tracks.len()
     }

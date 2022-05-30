@@ -1,4 +1,7 @@
-use super::{album::Album, track::Track};
+use super::{
+    album::Album,
+    track::{Track, TrackMut},
+};
 use crate::{
     image::{self as img, Image, LoadWithCacheError},
     raw,
@@ -56,6 +59,14 @@ impl<'a> Disc<'a> {
             .zip(1..)
             .map(move |(t, i)| Track::new(Cow::Borrowed(self), t, i))
     }
+
+    // pub fn tracks_mut(&mut self) -> impl Iterator<Item = TrackMut> {
+    //     self.disc
+    //         .tracks_mut()
+    //         .iter_mut()
+    //         .zip(1..)
+    //         .map(move |(t, i)| TrackMut::new(Cow::Borrowed(self), t, i))
+    // }
 
     pub fn filename(&self) -> Option<String> {
         if self.is_only_disc() {

@@ -89,13 +89,20 @@ impl<'a> Track<'a> {
     }
 
     pub fn canonical_filename(&self) -> String {
-        let digits = num_digits(self.disc().num_tracks());
-        format!(
-            "{:0width$} - {}.mp3",
-            self.track_number,
-            self.title().file_safe(),
-            width = digits,
-        )
+        // If this is a single disc, single track album, don't print the track number.
+        let num_tracks = self.disc().num_tracks();
+        let num_discs = self.album().num_discs();
+        if num_tracks == 1 && num_discs == 1 {
+            format!("{}.mp3", self.title().file_safe())
+        } else {
+            let digits = num_digits(num_tracks);
+            format!(
+                "{:0width$} - {}.mp3",
+                self.track_number,
+                self.title().file_safe(),
+                width = digits,
+            )
+        }
     }
 
     pub fn filename(&self) -> Cow<str> {
@@ -537,6 +544,138 @@ pub enum ValidateError {
     CouldntLoadCover(#[from] anyhow::Error),
 }
 
+pub struct TrackMut<'a> {
+    disc: Cow<'a, Disc<'a>>,
+    track: &'a mut raw::Track,
+    pub track_number: usize,
+}
+
+impl<'a> TrackMut<'a> {
+    pub fn new(
+        disc: Cow<'a, Disc<'a>>,
+        track: &'a mut raw::Track,
+        track_number: usize,
+    ) -> TrackMut<'a> {
+        TrackMut {
+            disc,
+            track,
+            track_number,
+        }
+    }
+
+    pub fn title(&self) -> &Text {
+        &self.track.title
+    }
+
+    pub fn artists(&self) -> &[Text] {
+        self.track
+            .artists()
+            .unwrap_or_else(|| self.album().artists())
+    }
+
+    pub fn artist(&self) -> Cow<Text> {
+        self.track
+            .artists()
+            .map(comma_separated)
+            .unwrap_or_else(|| self.album().artist())
+    }
+
+    pub fn album_artists(&self) -> Option<&[Text]> {
+        let album_artists = self.album().artists();
+        if self.artists() != album_artists {
+            Some(album_artists)
+        } else {
+            None
+        }
+    }
+
+    pub fn album_artist(&self) -> Option<Cow<Text>> {
+        self.album_artists().map(comma_separated)
+    }
+
+    pub fn year(&self) -> Option<usize> {
+        self.track.year.or_else(|| self.album().year())
+    }
+
+    pub fn genre(&self) -> Option<&Text> {
+        self.track.genre().or_else(|| self.album().genre())
+    }
+
+    pub fn comment(&self) -> Option<&Text> {
+        self.track.comment()
+    }
+
+    pub fn lyrics(&self) -> Option<&Text> {
+        self.track.lyrics()
+    }
+
+    pub fn album(&self) -> &Album {
+        self.disc().album
+    }
+
+    pub fn disc(&self) -> &Disc {
+        &self.disc
+    }
+
+    pub fn canonical_filename(&self) -> String {
+        let digits = num_digits(self.disc().num_tracks());
+        format!(
+            "{:0width$} - {}.mp3",
+            self.track_number,
+            self.title().file_safe(),
+            width = digits,
+        )
+    }
+
+    pub fn filename(&self) -> Cow<str> {
+        match self.track.filename() {
+            Some(filename) => filename.into(),
+            None => self.canonical_filename().into(),
+        }
+    }
+
+    pub fn filename_vw(&self) -> String {
+        if self.album().num_discs() == 1 {
+            return self.canonical_filename();
+        }
+        let disc_digits = num_digits(self.album().num_discs());
+        let track_digits = num_digits(self.disc().num_tracks());
+        format!(
+            "{:0disc_width$}-{:0track_width$} - {}.mp3",
+            self.disc().disc_number,
+            self.track_number,
+            self.title().file_safe(),
+            disc_width = disc_digits,
+            track_width = track_digits,
+        )
+    }
+
+    pub fn canonical_path(&self) -> PathBuf {
+        self.disc().path().join(self.canonical_filename())
+    }
+
+    pub fn path(&self) -> PathBuf {
+        match self.filename() {
+            Cow::Borrowed(filename) => self.album().path().join(filename),
+            Cow::Owned(filename) => self.disc().path().join(filename),
+        }
+    }
+
+    pub fn exists(&self) -> bool {
+        self.path().exists()
+    }
+
+    pub fn rename(&mut self) -> AnyhowResult<()> {
+        let path = self.path();
+        let can_path = self.canonical_path();
+        if path != can_path {
+            std::fs::rename(path, can_path).context("Couldn't rename track")
+        } else {
+            Ok(())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -590,5 +729,57 @@ mod tests {
             Some(&[Text::from("a"), Text::from(("b", "c"))][..]),
             track.album_artists(),
         );
+    }
+
+    #[test]
+    fn track_number_has_single_digit_track_num_in_filename() {
+        let album = raw::Album::new("foo")
+            .with_artists(vec![Text::from("a"), Text::from(("b", "c"))])
+            .with_discs(vec![raw::Disc::from_tracks(vec![
+                raw::Track::new("song").with_artists(vec![Text::from("d")]),
+                raw::Track::new("other"),
+            ])]);
+        let album = Album::new(album, PathBuf::from("."));
+        let disc = album.disc(1).unwrap();
+        let track = disc.track(1).unwrap();
+        let filename = track.canonical_filename();
+        assert_eq!("1 - song.mp3", filename);
+    }
+
+    #[test]
+    fn track_number_has_two_digit_track_num_in_filename() {
+        let album = raw::Album::new("foo")
+            .with_artists(vec![Text::from("a"), Text::from(("b", "c"))])
+            .with_discs(vec![raw::Disc::from_tracks(vec![
+                raw::Track::new("song").with_artists(vec![Text::from("d")]),
+                raw::Track::new("2"),
+                raw::Track::new("3"),
+                raw::Track::new("4"),
+                raw::Track::new("5"),
+                raw::Track::new("6"),
+                raw::Track::new("7"),
+                raw::Track::new("8"),
+                raw::Track::new("9"),
+                raw::Track::new("10"),
+            ])]);
+        let album = Album::new(album, PathBuf::from("."));
+        let disc = album.disc(1).unwrap();
+        let track = disc.track(1).unwrap();
+        let filename = track.canonical_filename();
+        assert_eq!("01 - song.mp3", filename);
+    }
+
+    #[test]
+    fn track_number_is_removed_from_filename_when_only_track() {
+        let album = raw::Album::new("foo")
+            .with_artists(vec![Text::from("a"), Text::from(("b", "c"))])
+            .with_discs(vec![raw::Disc::from_tracks(vec![
+                raw::Track::new("song").with_artists(vec![Text::from("d")])
+            ])]);
+        let album = Album::new(album, PathBuf::from("."));
+        let disc = album.disc(1).unwrap();
+        let track = disc.track(1).unwrap();
+        let filename = track.canonical_filename();
+        assert_eq!("song.mp3", filename);
     }
 }
