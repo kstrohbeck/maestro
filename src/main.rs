@@ -30,7 +30,11 @@ struct Opt {
 #[structopt(rename_all = "kebab-case")]
 enum Command {
     /// Update an album's tags.
-    Update,
+    Update {
+        #[structopt(long)]
+        /// If tags should be overwritten even if there's no change.
+        force: bool,
+    },
 
     ///Export an album to a folder.
     Export {
@@ -140,7 +144,9 @@ fn main() -> AnyhowResult<()> {
     } = Opt::from_args();
 
     match command {
-        Command::Update => run_all_tracks(folder, "Updating", |track| track.update_id3()),
+        Command::Update { force } => {
+            run_all_tracks(folder, "Updating", |track| track.update_id3(force))
+        }
         Command::Export {
             format,
             root,

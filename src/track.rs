@@ -397,12 +397,12 @@ impl<'a> Track<'a> {
         Ok(tag)
     }
 
-    pub fn update_id3(&self) -> AnyhowResult<()> {
+    pub fn update_id3(&self, should_force: bool) -> AnyhowResult<()> {
         let path = self.path();
         let tag = self.tag().context("Couldn't create tag")?;
         if let Ok(old_tag) = Tag::read_from_path(self.path()) {
             // FIXME: This doesn't actually check for real equality.
-            if old_tag == tag {
+            if old_tag == tag || should_force {
                 return Ok(());
             }
         }
