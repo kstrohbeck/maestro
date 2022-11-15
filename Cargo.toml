@@ -1,6 +1,6 @@
 [package]
 name = "maestro"
-version = "0.3.2"
+version = "0.3.3"
 authors = ["Kyle Strohbeck <kstrohbeck@gmail.com>"]
 edition = "2021"
 
