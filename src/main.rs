@@ -110,7 +110,9 @@ where
 {
     let album = Album::load(folder).context("Couldn't load album")?;
     let mut data = ctx(&album);
-    let style = ProgressStyle::default_bar().template("{bar} ({pos}/{len}): {msg}");
+    let style = ProgressStyle::default_bar()
+        .template("{bar} ({pos}/{len}): {msg}")
+        .unwrap();
     let progress_bar = ProgressBar::new(album.num_tracks() as u64).with_style(style);
     let mut errors = Vec::new();
 

@@ -281,7 +281,7 @@ macro_rules! encode {
                 $img,
                 $img.width(),
                 $img.height(),
-                <image::Rgb<u8> as image::Pixel>::COLOR_TYPE,
+                <image::Rgb<u8> as image::PixelWithColorType>::COLOR_TYPE,
             )
             .map(|()| data)
     }};
@@ -292,7 +292,7 @@ macro_rules! encode {
 /// The transformed image is 1000x1000 pixels, and may be a PNG or JPEG. The encoding used is
 /// whichever produces a smaller-sized output.
 pub fn transform_image(img: DynamicImage) -> Result<Image, image::ImageError> {
-    use image::{jpeg::JpegEncoder, png::PngEncoder};
+    use image::codecs::{jpeg::JpegEncoder, png::PngEncoder};
 
     let img = img
         .resize(1000, 1000, image::imageops::FilterType::Lanczos3)
@@ -311,7 +311,7 @@ pub fn transform_image(img: DynamicImage) -> Result<Image, image::ImageError> {
 
 /// Transform an image into a format for car use.
 pub fn transform_image_vw(img: DynamicImage) -> Result<Image, image::ImageError> {
-    use image::jpeg::JpegEncoder;
+    use image::codecs::jpeg::JpegEncoder;
 
     let img = img
         .resize(300, 300, image::imageops::FilterType::Lanczos3)
