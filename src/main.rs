@@ -156,7 +156,7 @@ fn main() -> AnyhowResult<()> {
                 folder,
                 "Copying",
                 |album| {
-                    output.unwrap_or_else(|| {
+                    let output = output.unwrap_or_else(|| {
                         // TODO: Don't unwrap.
                         let mut root = root.unwrap();
                         let artist = album.artist();
@@ -164,7 +164,11 @@ fn main() -> AnyhowResult<()> {
                         root.push(artist.file_safe());
                         root.push(&title.file_safe());
                         root
-                    })
+                    });
+
+                    // Make sure the output folder exists.
+                    std::fs::create_dir_all(&output).unwrap();
+                    output
                 },
                 |output, track| match format {
                     ExportFormat::Full => track.export(&output),
