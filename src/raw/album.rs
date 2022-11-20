@@ -8,7 +8,7 @@ use std::{borrow::Cow, fmt, path::Path};
 pub struct Album {
     pub title: Text,
     pub artists: Vec<Text>,
-    pub year: Option<usize>,
+    pub year: Option<AlbumYear>,
     pub genre: Option<Text>,
     pub discs: Vec<Disc>,
 }
@@ -127,7 +127,8 @@ impl Album {
             .map(|s| s.to_string())
             .unwrap_or_else(|| String::from(""))
             .into()];
-        let year = get_most_often(&track_infos, |t| t.date_recorded().map(|d| d.year as usize));
+        let year = get_most_often(&track_infos, |t| t.date_recorded().map(|d| d.year as usize))
+            .map(AlbumYear::Year);
         let genre: Option<Text> =
             get_most_often(&track_infos, id3::Tag::genre).map(|s| Text::from(s.to_string()));
 
@@ -213,7 +214,7 @@ impl Album {
         self
     }
 
-    pub fn with_year<T: Into<Option<usize>>>(mut self, year: T) -> Self {
+    pub fn with_year<T: Into<Option<AlbumYear>>>(mut self, year: T) -> Self {
         self.year = year.into();
         self
     }
@@ -323,6 +324,60 @@ impl<'de> Deserialize<'de> for Album {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlbumYear {
+    Carry,
+    Year(usize),
+}
+
+impl Serialize for AlbumYear {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        match self {
+            Self::Carry => serializer.serialize_str("carry"),
+            Self::Year(year) => serializer.serialize_u64(*year as u64),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AlbumYear {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        struct Visitor;
+
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = AlbumYear;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a year or \"carry\"")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                match value {
+                    "carry" => Ok(AlbumYear::Carry),
+                    _ => Err(E::unknown_variant(value, &["year", "carry"])),
+                }
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(AlbumYear::Year(value as usize))
+            }
+        }
+
+        deserializer.deserialize_any(Visitor)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,5 +411,37 @@ mod tests {
         )
         .unwrap();
         assert_eq!(Text::from("foo"), album.title);
+    }
+
+    #[test]
+    fn album_year_is_parsed() {
+        let album = serde_yaml::from_str::<Album>(
+            "
+            title: foo
+            artist: bar
+            year: 2020
+            tracks:
+                - a
+                - b
+            ",
+        )
+        .unwrap();
+        assert_eq!(Some(AlbumYear::Year(2020)), album.year);
+    }
+
+    #[test]
+    fn album_year_carry_is_parsed() {
+        let album = serde_yaml::from_str::<Album>(
+            "
+            title: foo
+            artist: bar
+            year: carry
+            tracks:
+                - a
+                - b
+            ",
+        )
+        .unwrap();
+        assert_eq!(Some(AlbumYear::Carry), album.year);
     }
 }

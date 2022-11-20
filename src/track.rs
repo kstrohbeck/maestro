@@ -65,7 +65,26 @@ impl<'a> Track<'a> {
     }
 
     pub fn year(&self) -> Option<usize> {
-        self.track.year.or_else(|| self.album().year())
+        if let Some(year) = self.track.year {
+            return Some(year);
+        }
+
+        // TODO: Check if album year is carry.
+        let album_year = self.album().year()?;
+        if let raw::AlbumYear::Year(year) = album_year {
+            return Some(year);
+        }
+
+        if self.track_number > 1 {
+            return self.disc.track(self.track_number - 1)?.year();
+        }
+
+        if self.disc.disc_number > 1 {
+            let disc = self.album().disc(self.disc.disc_number - 1)?;
+            return disc.track(disc.num_tracks())?.year();
+        }
+
+        None
     }
 
     pub fn genre(&self) -> Option<&Text> {
@@ -594,7 +613,26 @@ impl<'a> TrackMut<'a> {
     }
 
     pub fn year(&self) -> Option<usize> {
-        self.track.year.or_else(|| self.album().year())
+        if let Some(year) = self.track.year {
+            return Some(year);
+        }
+
+        // TODO: Check if album year is carry.
+        let album_year = self.album().year()?;
+        if let raw::AlbumYear::Year(year) = album_year {
+            return Some(year);
+        }
+
+        if self.track_number > 1 {
+            return self.disc.track(self.track_number - 1)?.year();
+        }
+
+        if self.disc.disc_number > 1 {
+            let disc = self.album().disc(self.disc.disc_number - 1)?;
+            return disc.track(disc.num_tracks())?.year();
+        }
+
+        None
     }
 
     pub fn genre(&self) -> Option<&Text> {
@@ -781,5 +819,116 @@ mod tests {
         let track = disc.track(1).unwrap();
         let filename = track.canonical_filename();
         assert_eq!("song.mp3", filename);
+    }
+
+    #[test]
+    fn track_has_no_year() {
+        let album = raw::Album::new("foo")
+            .with_artists(vec![Text::from("a"), Text::from(("b", "c"))])
+            .with_discs(vec![
+                raw::Disc::from_tracks(vec![
+                    raw::Track::new("song a 1").with_year(2020),
+                    raw::Track::new("song a 2"),
+                ]),
+                raw::Disc::from_tracks(vec![
+                    raw::Track::new("song b 1").with_year(2021),
+                    raw::Track::new("song b 2"),
+                ]),
+            ]);
+
+        let album = Album::new(album, PathBuf::from("."));
+        let disc = album.disc(1).unwrap();
+        let track = disc.track(2).unwrap();
+        assert_eq!(None, track.year());
+    }
+
+    #[test]
+    fn track_has_fixed_year() {
+        let album = raw::Album::new("foo")
+            .with_artists(vec![Text::from("a"), Text::from(("b", "c"))])
+            .with_discs(vec![
+                raw::Disc::from_tracks(vec![
+                    raw::Track::new("song a 1").with_year(2020),
+                    raw::Track::new("song a 2"),
+                ]),
+                raw::Disc::from_tracks(vec![
+                    raw::Track::new("song b 1").with_year(2021),
+                    raw::Track::new("song b 2"),
+                ]),
+            ]);
+
+        let album = Album::new(album, PathBuf::from("."));
+        let disc = album.disc(1).unwrap();
+        let track = disc.track(1).unwrap();
+        assert_eq!(Some(2020), track.year());
+    }
+
+    #[test]
+    fn track_has_inherited_year() {
+        let album = raw::Album::new("foo")
+            .with_artists(vec![Text::from("a"), Text::from(("b", "c"))])
+            .with_year(raw::AlbumYear::Year(2022))
+            .with_discs(vec![
+                raw::Disc::from_tracks(vec![
+                    raw::Track::new("song a 1").with_year(2020),
+                    raw::Track::new("song a 2"),
+                ]),
+                raw::Disc::from_tracks(vec![
+                    raw::Track::new("song b 1"),
+                    raw::Track::new("song b 2").with_year(2021),
+                    raw::Track::new("song b 3"),
+                ]),
+            ]);
+
+        let album = Album::new(album, PathBuf::from("."));
+        let disc = album.disc(1).unwrap();
+        let track = disc.track(2).unwrap();
+        assert_eq!(Some(2022), track.year());
+    }
+
+    #[test]
+    fn track_has_carried_year_from_previous_track_in_same_disc() {
+        let album = raw::Album::new("foo")
+            .with_artists(vec![Text::from("a"), Text::from(("b", "c"))])
+            .with_year(raw::AlbumYear::Carry)
+            .with_discs(vec![
+                raw::Disc::from_tracks(vec![
+                    raw::Track::new("song a 1").with_year(2020),
+                    raw::Track::new("song a 2"),
+                ]),
+                raw::Disc::from_tracks(vec![
+                    raw::Track::new("song b 1"),
+                    raw::Track::new("song b 2").with_year(2021),
+                    raw::Track::new("song b 3"),
+                ]),
+            ]);
+
+        let album = Album::new(album, PathBuf::from("."));
+        let disc = album.disc(2).unwrap();
+        let track = disc.track(3).unwrap();
+        assert_eq!(Some(2021), track.year());
+    }
+
+    #[test]
+    fn track_has_carried_year_from_last_track_in_previous_disc() {
+        let album = raw::Album::new("foo")
+            .with_artists(vec![Text::from("a"), Text::from(("b", "c"))])
+            .with_year(raw::AlbumYear::Carry)
+            .with_discs(vec![
+                raw::Disc::from_tracks(vec![
+                    raw::Track::new("song a 1").with_year(2020),
+                    raw::Track::new("song a 2"),
+                ]),
+                raw::Disc::from_tracks(vec![
+                    raw::Track::new("song b 1"),
+                    raw::Track::new("song b 2").with_year(2021),
+                    raw::Track::new("song b 3"),
+                ]),
+            ]);
+
+        let album = Album::new(album, PathBuf::from("."));
+        let disc = album.disc(2).unwrap();
+        let track = disc.track(1).unwrap();
+        assert_eq!(Some(2020), track.year());
     }
 }

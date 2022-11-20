@@ -70,7 +70,7 @@ impl Album {
         self.album.artist()
     }
 
-    pub fn year(&self) -> Option<usize> {
+    pub fn year(&self) -> Option<raw::AlbumYear> {
         self.album.year
     }
 
