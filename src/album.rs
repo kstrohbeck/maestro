@@ -163,10 +163,6 @@ impl Album {
         use crate::image::transform_image_vw;
         self.get_cover(&self.cover_vw, self.covers_vw_path(), transform_image_vw)
     }
-
-    pub fn save(&mut self) -> Result<(), ()> {
-        todo!()
-    }
 }
 
 #[derive(Debug)]

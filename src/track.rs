@@ -5,7 +5,7 @@ use crate::{
     utils::{comma_separated, num_digits},
     Text,
 };
-use anyhow::{Context, Error as AnyhowError, Result as AnyhowResult};
+use anyhow::{Context, Result as AnyhowResult};
 use id3::{Tag, TagLike, Version};
 use once_cell::sync::OnceCell;
 use std::{
@@ -69,7 +69,6 @@ impl<'a> Track<'a> {
             return Some(year);
         }
 
-        // TODO: Check if album year is carry.
         let album_year = self.album().year()?;
         if let raw::AlbumYear::Year(year) = album_year {
             return Some(year);
@@ -617,7 +616,6 @@ impl<'a> TrackMut<'a> {
             return Some(year);
         }
 
-        // TODO: Check if album year is carry.
         let album_year = self.album().year()?;
         if let raw::AlbumYear::Year(year) = album_year {
             return Some(year);

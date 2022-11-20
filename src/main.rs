@@ -100,7 +100,7 @@ where
 fn run_all_tracks_with_ctx<F, G, T, E>(
     folder: PathBuf,
     action: &'static str,
-    mut ctx: G,
+    ctx: G,
     mut func: F,
 ) -> AnyhowResult<()>
 where
@@ -164,7 +164,7 @@ fn main() -> AnyhowResult<()> {
                         let artist = album.artist();
                         let title = album.title();
                         root.push(artist.file_safe());
-                        root.push(&title.file_safe());
+                        root.push(title.file_safe());
                         root
                     });
 

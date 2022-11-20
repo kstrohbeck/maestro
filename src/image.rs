@@ -323,7 +323,7 @@ pub fn transform_image_vw(img: DynamicImage) -> Result<Image, image::ImageError>
 #[cfg(test)]
 mod tests {
     use super::{transform_image, transform_image_vw, Image};
-    use image::{self, DynamicImage, GenericImageView};
+    use image::{self, DynamicImage};
     use std::{
         fs::{self, File},
         io::Read,
